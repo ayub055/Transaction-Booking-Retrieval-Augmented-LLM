@@ -14,7 +14,7 @@ import argparse
 from src.data_loader import TransactionDataset
 from src.fusion_encoder import FusionEncoder
 from src.plotting import plot_loss_curves, plot_grad_norms, plot_embedding_projection, plot_validation_curves
-from src.validation import EarlyStopping, evaluate_retrieval_metrics, compute_validation_loss, print_validation_report
+from src.validation import EarlyStopping, evaluate_validation_metrics, print_validation_report
 
 
 def collate_fn(batch):
@@ -224,14 +224,16 @@ def run_experiment(config):
         epoch_losses.append(avg_loss)
         print(f"Epoch [{epoch+1}/{config['epochs']}] Train Loss: {avg_loss:.4f}")
 
-        # ========== VALIDATION PHASE ==========
+        # ========== VALIDATION PHASE (OPTIMIZED) ==========
         print("Evaluating on validation set...")
-        val_loss = compute_validation_loss(encoder, val_dataloader, triplet_loss_fn, device, config["margin"])
-        val_metrics = evaluate_retrieval_metrics(encoder, val_dataloader, device, k_values=[1, 5, 10])
-        val_metrics['val_loss'] = val_loss
+        # Single pass: compute both loss and retrieval metrics
+        val_metrics = evaluate_validation_metrics(
+            encoder, val_dataloader, triplet_loss_fn, device,
+            k_values=[1, 5, 10], margin=config["margin"], max_triplets=64
+        )
 
         # Store validation metrics
-        val_losses.append(val_loss)
+        val_losses.append(val_metrics['val_loss'])
         val_recall5.append(val_metrics['recall@5'])
         val_accuracies.append(val_metrics['accuracy'])
 

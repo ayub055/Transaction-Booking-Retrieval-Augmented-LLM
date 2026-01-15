@@ -60,24 +60,32 @@ class EarlyStopping:
         return False
 
 
-def evaluate_retrieval_metrics(encoder, dataloader, device, k_values=[1, 5, 10]):
+def evaluate_validation_metrics(encoder, dataloader, triplet_loss_fn, device,
+                                k_values=[1, 5, 10], margin=0.5, max_triplets=64):
     """
-    Evaluate retrieval-based metrics: Recall@K and Mean Reciprocal Rank (MRR).
+    Optimized validation: compute loss and retrieval metrics in single forward pass.
 
     Args:
         encoder: The FusionEncoder model
         dataloader: Validation dataloader
+        triplet_loss_fn: Triplet loss function
         device: torch device
         k_values: List of K values for Recall@K
+        margin: Triplet margin for loss computation
+        max_triplets: Maximum triplets per batch for loss
 
     Returns:
-        dict: Dictionary containing recall@k and MRR scores
+        dict: Dictionary containing val_loss, recall@k, accuracy, and MRR
     """
+    from src.train_multi_expt import sample_triplets
+
     encoder.eval()
     all_embeddings = []
     all_labels = []
+    total_loss = 0.0
+    batch_count = 0
 
-    # Encode all validation samples
+    # Single pass through validation data
     with torch.no_grad():
         for batch in dataloader:
             input_ids = batch['input_ids'].to(device)
@@ -86,23 +94,38 @@ def evaluate_retrieval_metrics(encoder, dataloader, device, k_values=[1, 5, 10])
             numeric = batch['numeric'].to(device)
             labels = batch['labels'].to(device)
 
+            # Forward pass (done once)
             embeddings = encoder(input_ids, attention_mask, categorical, numeric)
+
+            # Store embeddings for retrieval metrics
             all_embeddings.append(embeddings.cpu())
             all_labels.append(labels.cpu())
 
+            # Compute validation loss
+            triplets = sample_triplets(embeddings, labels, margin, max_triplets)
+            if triplets:
+                anchor_emb = torch.stack([embeddings[a] for a, _, _ in triplets])
+                pos_emb = torch.stack([embeddings[p] for _, p, _ in triplets])
+                neg_emb = torch.stack([embeddings[n] for _, _, n in triplets])
+
+                loss = triplet_loss_fn(anchor_emb, pos_emb, neg_emb)
+                total_loss += loss.item()
+                batch_count += 1
+
+    # Compute validation loss
+    avg_loss = total_loss / max(batch_count, 1)
+
+    # Concatenate all embeddings
     all_embeddings = torch.cat(all_embeddings, dim=0)  # [N, embedding_dim]
     all_labels = torch.cat(all_labels, dim=0)  # [N]
 
-    # Compute pairwise distances
-    # For normalized embeddings, cosine similarity = 1 - euclidean_distance^2 / 2
-    # But we'll use L2 distance for consistency
+    # Compute pairwise distances for retrieval metrics
     dist_matrix = torch.cdist(all_embeddings, all_embeddings, p=2)  # [N, N]
 
-    # For each query, find nearest neighbors
+    # Compute retrieval metrics
     recall_at_k = {k: [] for k in k_values}
     reciprocal_ranks = []
     correct_predictions = []
-
     num_samples = len(all_labels)
 
     for i in range(num_samples):
@@ -134,8 +157,9 @@ def evaluate_retrieval_metrics(encoder, dataloader, device, k_values=[1, 5, 10])
         pred_label = sorted_labels[0].item()
         correct_predictions.append(int(pred_label == query_label))
 
-    # Compute metrics
+    # Compile all metrics
     metrics = {
+        'val_loss': avg_loss,
         'accuracy': np.mean(correct_predictions),
         'mrr': np.mean(reciprocal_ranks)
     }
@@ -146,51 +170,27 @@ def evaluate_retrieval_metrics(encoder, dataloader, device, k_values=[1, 5, 10])
     return metrics
 
 
+# Legacy functions for backward compatibility
+def evaluate_retrieval_metrics(encoder, dataloader, device, k_values=[1, 5, 10]):
+    """Legacy function - use evaluate_validation_metrics instead."""
+    # Create a dummy loss function for compatibility
+    import torch.nn as nn
+    triplet_loss_fn = nn.TripletMarginLoss(margin=0.5)
+    metrics = evaluate_validation_metrics(
+        encoder, dataloader, triplet_loss_fn, device, k_values
+    )
+    # Remove val_loss from results to match old API
+    metrics.pop('val_loss', None)
+    return metrics
+
+
 def compute_validation_loss(encoder, dataloader, triplet_loss_fn, device, margin=0.5, max_triplets=64):
-    """
-    Compute validation loss using triplet sampling.
-
-    Args:
-        encoder: The FusionEncoder model
-        dataloader: Validation dataloader
-        triplet_loss_fn: Triplet loss function
-        device: torch device
-        margin: Triplet margin
-        max_triplets: Maximum triplets per batch
-
-    Returns:
-        float: Average validation loss
-    """
-    from src.train_multi_expt import sample_triplets
-
-    encoder.eval()
-    total_loss = 0.0
-    batch_count = 0
-
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            categorical = batch['categorical'].to(device)
-            numeric = batch['numeric'].to(device)
-            labels = batch['labels'].to(device)
-
-            embeddings = encoder(input_ids, attention_mask, categorical, numeric)
-            triplets = sample_triplets(embeddings, labels, margin, max_triplets)
-
-            if not triplets:
-                continue
-
-            anchor_emb = torch.stack([embeddings[a] for a, _, _ in triplets])
-            pos_emb = torch.stack([embeddings[p] for _, p, _ in triplets])
-            neg_emb = torch.stack([embeddings[n] for _, _, n in triplets])
-
-            loss = triplet_loss_fn(anchor_emb, pos_emb, neg_emb)
-            total_loss += loss.item()
-            batch_count += 1
-
-    avg_loss = total_loss / max(batch_count, 1)
-    return avg_loss
+    """Legacy function - use evaluate_validation_metrics instead."""
+    metrics = evaluate_validation_metrics(
+        encoder, dataloader, triplet_loss_fn, device,
+        k_values=[5], margin=margin, max_triplets=max_triplets
+    )
+    return metrics['val_loss']
 
 
 def print_validation_report(metrics, epoch):
