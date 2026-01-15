@@ -1,0 +1,55 @@
+# Updated experiment configurations with validation and early stopping
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "freeze"
+  epochs: 20
+  batch_size: 128
+  lr: 0.00001
+  margin: 0.5
+  dropout: 0.1
+  val_split: 0.15  # 15% validation split
+  patience: 5  # Early stopping patience
+  min_delta: 0.001  # Minimum improvement threshold
+  sample_size: 40000
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 128
+  final_dim: 128
+  freeze_strategy: "gradual"
+  epochs: 20
+  batch_size: 128
+  lr: 0.00002
+  margin: 0.5
+  dropout: 0.1
+  val_split: 0.15
+  patience: 7
+  min_delta: 0.001
+  sample_size: 40000
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 512
+  final_dim: 512
+  freeze_strategy: "full"
+  epochs: 20
+  batch_size: 64
+  lr: 0.00003
+  margin: 0.5
+  dropout: 0.2
+  val_split: 0.15
+  patience: 5
+  min_delta: 0.001
+  sample_size: 40000

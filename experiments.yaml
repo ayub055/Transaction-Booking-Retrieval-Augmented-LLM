@@ -1,0 +1,55 @@
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "freeze"
+  epochs: 3
+  batch_size: 128
+  lr: 0.00001
+  margin: 0.5
+  dropout: 0.1
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 128
+  final_dim: 128
+  freeze_strategy: "gradual"
+  epochs: 7
+  batch_size: 128
+  lr: 0.00002
+  margin: 0.5
+  dropout: 0.1
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 512
+  final_dim: 512
+  freeze_strategy: "full"
+  epochs: 4
+  batch_size: 64
+  lr: 0.00003
+  margin: 0.5
+  dropout: 0.2
+
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["txn_type", "dr_cr_indctor"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "classcode"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "full"
+  epochs: 4
+  batch_size: 64
+  lr: 0.00003
+  margin: 0.5
+  dropout: 0.2
