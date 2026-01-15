@@ -32,9 +32,13 @@ class TransactionDataset(Dataset):
         self.max_length = max_length
         self.prompt = prompt
 
-        # Build categorical vocab mapping
-        self.cat_vocab = {col: {val: idx for idx, val in enumerate(df[col].unique())}
-                          for col in categorical_cols}
+        # Build categorical vocab mapping with <UNK> token
+        self.cat_vocab = {}
+        for col in categorical_cols:
+            unique_vals = df[col].unique()
+            vocab = {'<UNK>': 0}  # Reserve index 0 for unknown values
+            vocab.update({val: idx + 1 for idx, val in enumerate(unique_vals)})
+            self.cat_vocab[col] = vocab
 
         # Standardize numeric features
         self.scaler = StandardScaler()
@@ -55,7 +59,7 @@ class TransactionDataset(Dataset):
         encoding = self.tokenizer(text, padding='max_length', truncation=True,
                                   max_length=self.max_length, return_tensors='pt')
 
-        categorical_indices = [self.cat_vocab[col][row[col]] for col in self.categorical_cols]
+        categorical_indices = [self.cat_vocab[col].get(row[col], 0) for col in self.categorical_cols]
         numeric_features = torch.tensor(self.numeric_data[idx], dtype=torch.float)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
 
