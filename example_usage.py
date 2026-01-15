@@ -92,10 +92,11 @@ def demo_validation_and_early_stopping():
     num_samples = 1000
     dummy_df = pd.DataFrame({
         'tran_partclr': [f'Transaction {i}' for i in range(num_samples)],
-        'txn_type': ['DEBIT' if i % 2 == 0 else 'CREDIT' for i in range(num_samples)],
+        'tran_mode': ['CASH' if i % 2 == 0 else 'ONLINE' for i in range(num_samples)],
         'dr_cr_indctor': ['D' if i % 3 == 0 else 'C' for i in range(num_samples)],
+        'sal_flag': ['Y' if i % 4 == 0 else 'N' for i in range(num_samples)],
         'tran_amt_in_ac': [100.0 + i * 10 for i in range(num_samples)],
-        'classcode': [f'CLASS_{i % 10}' for i in range(num_samples)]
+        'category': [f'CAT_{i % 10}' for i in range(num_samples)]
     })
 
     print(f"   Total samples: {len(dummy_df)}")
@@ -106,7 +107,7 @@ def demo_validation_and_early_stopping():
         dummy_df,
         test_size=0.15,
         random_state=42,
-        stratify=dummy_df['classcode']
+        stratify=dummy_df['category']
     )
 
     print(f"   Train samples: {len(train_df)}")
@@ -114,12 +115,12 @@ def demo_validation_and_early_stopping():
 
     # Show class distribution is maintained
     print("\n3. Verifying stratified split (class distribution):")
-    train_dist = train_df['classcode'].value_counts(normalize=True).sort_index()
-    val_dist = val_df['classcode'].value_counts(normalize=True).sort_index()
+    train_dist = train_df['category'].value_counts(normalize=True).sort_index()
+    val_dist = val_df['category'].value_counts(normalize=True).sort_index()
 
     print("\n   Class | Train % | Val %")
     print("   " + "-"*30)
-    for cls in sorted(dummy_df['classcode'].unique()):
+    for cls in sorted(dummy_df['category'].unique()):
         print(f"   {cls:6s} | {train_dist.get(cls, 0)*100:6.2f}% | {val_dist.get(cls, 0)*100:6.2f}%")
 
     print("\n4. Setting up Early Stopping...")

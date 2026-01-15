@@ -59,13 +59,17 @@ class TransactionDataset(Dataset):
         numeric_features = torch.tensor(self.numeric_data[idx], dtype=torch.float)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
 
-        # Metadata for
+        # Metadata for tracking
         metadata = {
             "tran_partclr": row["tran_partclr"],
-            "txn_type": row["txn_type"],
             "dr_cr_indctor": row["dr_cr_indctor"],
             "tran_amt_in_ac": row["tran_amt_in_ac"],
             "label": row[self.label_col]}
+
+        # Add categorical columns to metadata dynamically
+        for col in self.categorical_cols:
+            if col in row:
+                metadata[col] = row[col]
 
         return {
             "input_ids": encoding["input_ids"].squeeze(0),
@@ -96,9 +100,9 @@ if __name__ == "__main__":
     print(f'--- Data Read---- {df.shape}')
     
     # Define columns
-    categorical_cols = ['txn_type', 'dr_cr_indctor']
+    categorical_cols = ['tran_mode', 'dr_cr_indctor', 'sal_flag']
     numeric_cols = ['tran_amt_in_ac']
-    label_col = 'classcode'
+    label_col = 'category'
     
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     dataset = TransactionDataset(df, tokenizer, categorical_cols, numeric_cols, label_col)

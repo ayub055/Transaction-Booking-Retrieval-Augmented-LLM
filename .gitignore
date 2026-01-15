@@ -1,1 +1,8 @@
 IMPROVEMENTS.md
+test_config.py
+test_pipeline.py
+generate_dummy_data.py
+.gitignore
+src/__pycache__
+experiments/
+data/

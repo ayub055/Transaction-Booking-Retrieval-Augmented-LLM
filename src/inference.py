@@ -11,9 +11,9 @@ from src.data_loader import TransactionDataset, collate_fn
 # CONFIGURATION
 # -----------------------------
 csv_path = "sample_txn.csv"  # Historical transactions
-categorical_cols = ['txn_type', 'dr_cr_indctor']
+categorical_cols = ['tran_mode', 'dr_cr_indctor', 'sal_flag']
 numeric_cols = ['tran_amt_in_ac']
-label_col = 'classcode'
+label_col = 'category'
 bert_model = 'bert-base-uncased'
 faiss_index_path = "transaction_index.faiss"
 model_path = "fusion_encoder.pth"
@@ -92,9 +92,10 @@ def predict_gl_account_faiss(new_txn: dict):
 # -----------------------------
 sample_txn = {
     'tran_partclr': 'WIRE TRANSFER PAYMENT TO VENDOR ABC',
-    'txn_type': historical_df.iloc[0]['txn_type'],
+    'tran_mode': historical_df.iloc[0]['tran_mode'],
     'dr_cr_indctor': historical_df.iloc[0]['dr_cr_indctor'],
+    'sal_flag': historical_df.iloc[0]['sal_flag'],
     'tran_amt_in_ac': historical_df.iloc[0]['tran_amt_in_ac']
 }
 
-print("Predicted GL-account:", predict_gl_account_faiss(sample_txn))
+print("Predicted category:", predict_gl_account_faiss(sample_txn))

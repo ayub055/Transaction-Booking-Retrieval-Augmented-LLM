@@ -1,62 +1,40 @@
-import json
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
-import numpy as np
-import os
+import random
+from torch.utils.data import Sampler
 
-# ---------------------- Plot Loss Curves ----------------------
-def plot_loss_curves(log_data, save_path):
-    epoch_losses = log_data.get("epoch_losses", [])
-    step_losses = log_data.get("step_losses", [])
+class TripletSampler(Sampler):
+    def __init__(self, 
+                 labels, 
+                 num_triplets):
+        """
+        Args:
+            labels: list or tensor of labels for all samples in the dataset.
+            num_triplets: number of triplets to sample per epoch.
+        """
+        self.labels = labels
+        self.num_triplets = num_triplets
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(epoch_losses) + 1), epoch_losses, marker='o', label="Epoch Loss")
-    plt.title("Epoch Loss Curve")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(save_path)
-    plt.close()
+        # Group indices by label
+        self.label_to_indices = {}
+        for idx, label in enumerate(labels): self.label_to_indices.setdefault(label, []).append(idx)
 
-    # Optional: Step loss curve
-    step_path = save_path.replace("loss_curve.png", "step_loss_curve.png")
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(step_losses) + 1), step_losses, label="Step Loss", alpha=0.7)
-    plt.title("Step Loss Curve")
-    plt.xlabel("Step")
-    plt.ylabel("Loss")
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(step_path)
-    plt.close()
+        self.unique_labels = list(self.label_to_indices.keys())
 
-# ---------------------- Plot Gradient Norms ----------------------
-def plot_grad_norms(log_data, save_path):
-    grad_norms = log_data.get("grad_norms", [])
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(grad_norms) + 1), grad_norms, color='orange', alpha=0.8)
-    plt.title("Gradient Norms Over Steps")
-    plt.xlabel("Step")
-    plt.ylabel("Gradient Norm")
-    plt.grid(True)
-    plt.savefig(save_path)
-    plt.close()
+    def __iter__(self):
+        triplets = []
+        for _ in range(self.num_triplets):
+            # Anchor label
+            anchor_label = random.choice(self.unique_labels)
+            positive_label = anchor_label
+            negative_label = random.choice([l for l in self.unique_labels if l != anchor_label])
 
-# ---------------------- TSNE Embedding Visualization ----------------------
-def plot_embedding_projection(embeddings, labels, save_path, perplexity=30, n_iter=1000):
-    """
-    embeddings: torch.Tensor or numpy array of shape [num_samples, embedding_dim]
-    labels: numpy array of shape [num_samples]
-    """
-    if isinstance(embeddings, torch.Tensor): embeddings = embeddings.detach().cpu().numpy()
+            # Sample indices
+            anchor_idx = random.choice(self.label_to_indices[anchor_label])
+            positive_idx = random.choice([i for i in self.label_to_indices[positive_label] if i != anchor_idx])
+            negative_idx = random.choice(self.label_to_indices[negative_label])
 
-    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
-    reduced = tsne.fit_transform(embeddings)
+            triplets.append((anchor_idx, positive_idx, negative_idx))
 
-    plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(reduced[:, 0], reduced[:, 1], c=labels, cmap='tab10', alpha=0.7)
-    plt.colorbar(scatter)
-    plt.title("TSNE Projection of Embeddings")
-    plt.savefig(save_path)
-    plt.close()
+        return iter(triplets)
+
+    def __len__(self):
+        return self.num_triplets
