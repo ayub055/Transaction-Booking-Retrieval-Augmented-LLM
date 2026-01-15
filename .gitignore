@@ -6,3 +6,9 @@ generate_dummy_data.py
 src/__pycache__
 experiments/
 data/
+TRAINING_OPTIMIZATION.md
+config_optimized.json
+compare_configs.py
+RUN_TRAINING.sh
+OPTIMIZATION_SUMMARY.md
+QUICK_START.md 

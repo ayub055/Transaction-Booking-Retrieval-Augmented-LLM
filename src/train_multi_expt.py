@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 from transformers import BertTokenizer
 from sklearn.model_selection import train_test_split
+from torch.cuda.amp import autocast, GradScaler
 import json
 import yaml
 import argparse
@@ -69,8 +70,20 @@ def sample_triplets(embeddings, labels, margin=0.5, max_triplets=64):
 
 # ---------------------- Training  ----------------------
 def run_experiment(config):
+    # Gradient accumulation setup
+    accumulation_steps = config.get("accumulation_steps", 1)
+    base_batch_size = config.get("base_batch_size", 256)
+    effective_batch_size = config["batch_size"] * accumulation_steps
+
+    # Learning rate scaling: scale with sqrt of batch size ratio
+    if "base_lr" in config:
+        batch_ratio = effective_batch_size / base_batch_size
+        scaled_lr = config["base_lr"] * (batch_ratio ** 0.5)
+        config["lr"] = scaled_lr
+        print(f"LR Scaling: base_lr={config['base_lr']:.2e}, batch_ratio={batch_ratio:.2f}, scaled_lr={scaled_lr:.2e}")
+
     # Prepare directories
-    exp_name = f"tagger_proj{config['text_proj_dim']}_final{config['final_dim']}_freeze-{config['freeze_strategy']}_lr{config['lr']}"
+    exp_name = f"tagger_proj{config['text_proj_dim']}_final{config['final_dim']}_freeze-{config['freeze_strategy']}_bs{effective_batch_size}_lr{config['lr']:.2e}"
     exp_dir = os.path.join("experiments", exp_name)
     os.makedirs(exp_dir, exist_ok=True)
     # os.makedirs(os.path.join(exp_dir, "checkpoints"), exist_ok=True)
@@ -79,6 +92,7 @@ def run_experiment(config):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Running experiment: {exp_name} on {device}")
+    print(f"Batch config: per_device={config['batch_size']}, accumulation={accumulation_steps}, effective={effective_batch_size}")
 
     # Load data and split into train/validation
     df = pd.read_csv(config["csv_path"]).sample(n=config.get("sample_size", 40000), random_state=42).reset_index(drop=True)
@@ -126,6 +140,12 @@ def run_experiment(config):
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
     triplet_loss_fn = nn.TripletMarginLoss(margin=config["margin"])  # LOSS
 
+    # Mixed precision training setup
+    use_amp = config.get("use_amp", False) and torch.cuda.is_available()
+    scaler = GradScaler() if use_amp else None
+    if use_amp:
+        print("Mixed precision training enabled (AMP)")
+
     # Early stopping setup
     early_stopping = EarlyStopping(
         patience=config.get("patience", 5),
@@ -144,6 +164,7 @@ def run_experiment(config):
         encoder.train()
         apply_freeze_strategy(encoder, config["freeze_strategy"], epoch)
         total_loss, batch_count = 0.0, 0
+        optimizer.zero_grad()  # Initialize gradients at epoch start
 
         for batch_idx, batch in enumerate(train_dataloader, start=1):
             input_ids = batch['input_ids'].to(device)
@@ -152,30 +173,51 @@ def run_experiment(config):
             numeric = batch['numeric'].to(device)
             labels = batch['labels'].to(device)
 
-            embeddings = encoder(input_ids, attention_mask, categorical, numeric)
-            triplets = sample_triplets(embeddings, labels, config["margin"], max_triplets=64)
-            if not triplets: continue
+            # Mixed precision forward pass
+            with autocast(enabled=use_amp):
+                embeddings = encoder(input_ids, attention_mask, categorical, numeric)
+                triplets = sample_triplets(embeddings, labels, config["margin"], max_triplets=64)
+                if not triplets: continue
 
-            anchor_emb = torch.stack([embeddings[a] for a, _, _ in triplets])
-            pos_emb = torch.stack([embeddings[p] for _, p, _ in triplets])
-            neg_emb = torch.stack([embeddings[n] for _, _, n in triplets])
+                anchor_emb = torch.stack([embeddings[a] for a, _, _ in triplets])
+                pos_emb = torch.stack([embeddings[p] for _, p, _ in triplets])
+                neg_emb = torch.stack([embeddings[n] for _, _, n in triplets])
 
-            loss = triplet_loss_fn(anchor_emb, pos_emb, neg_emb)
+                loss = triplet_loss_fn(anchor_emb, pos_emb, neg_emb)
+                # Scale loss by accumulation steps for correct gradient magnitude
+                loss = loss / accumulation_steps
 
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(encoder.parameters(), max_norm=1.0)
-            optimizer.step()
+            # Backward pass with gradient scaling
+            if use_amp:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
 
-            # Track gradient norms
-            grad_norm = sum(p.grad.norm().item() for p in encoder.parameters() if p.grad is not None)
-            grad_norms.append(grad_norm)
+            # Accumulate gradients and step optimizer every accumulation_steps
+            if batch_idx % accumulation_steps == 0:
+                if use_amp:
+                    scaler.unscale_(optimizer)  # Unscale before clipping
+                torch.nn.utils.clip_grad_norm_(encoder.parameters(), max_norm=1.0)
 
-            step_losses.append(loss.item())
-            total_loss += loss.item()
+                # Track gradient norms (only on accumulation steps)
+                grad_norm = sum(p.grad.norm().item() for p in encoder.parameters() if p.grad is not None)
+                grad_norms.append(grad_norm)
+
+                if use_amp:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+
+                optimizer.zero_grad()
+
+            # Track loss (unscaled for logging)
+            step_losses.append(loss.item() * accumulation_steps)
+            total_loss += loss.item() * accumulation_steps
             batch_count += 1
 
-            if batch_idx % 3 == 0:  print(f"Epoch [{epoch+1}/{config['epochs']}], Batch [{batch_idx}], Loss: {loss.item():.4f}")
+            if batch_idx % (3 * accumulation_steps) == 0:
+                print(f"Epoch [{epoch+1}/{config['epochs']}], Batch [{batch_idx}], Loss: {loss.item() * accumulation_steps:.4f}")
 
         scheduler.step()
         avg_loss = total_loss / max(batch_count, 1)

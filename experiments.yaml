@@ -1,55 +1,111 @@
+# ============================================================
+# OPTIMIZED CONFIGS FOR 750K DATASET
+# Uses gradient accumulation, LR scaling, and mixed precision
+# ============================================================
+
+# Config 1: Optimized - Recommended for most users
 - csv_path: "./data/sample_txn.csv"
+  sample_size: 750000  # Use full dataset
+  val_split: 0.15
   categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
   numeric_cols: ["tran_amt_in_ac"]
   label_col: "category"
   bert_model: "bert-base-uncased"
   text_proj_dim: 256
   final_dim: 256
-  freeze_strategy: "freeze"
-  epochs: 3
-  batch_size: 128
-  lr: 0.00001
+  freeze_strategy: "gradual"
+  epochs: 10
+
+  # Batch size optimization
+  batch_size: 512
+  accumulation_steps: 4
+  base_batch_size: 256
+  base_lr: 0.00002  # 2e-5
+  # Effective batch = 2048, LR will be scaled to ~5.66e-5
+
+  # Performance optimization
+  use_amp: true  # Mixed precision training
+
   margin: 0.5
   dropout: 0.1
+  patience: 5
+  min_delta: 0.001
 
+# Config 2: High-Throughput - For large GPU (16GB+ VRAM)
 - csv_path: "./data/sample_txn.csv"
+  sample_size: 750000
+  val_split: 0.15
+  categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "category"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "gradual"
+  epochs: 10
+
+  # High-throughput config
+  batch_size: 1024
+  accumulation_steps: 8
+  base_batch_size: 256
+  base_lr: 0.00002
+  # Effective batch = 8192, LR will be scaled to ~1.13e-4
+
+  use_amp: true
+
+  margin: 0.5
+  dropout: 0.1
+  patience: 5
+  min_delta: 0.001
+
+# Config 3: Small GPU - For 8GB VRAM
+- csv_path: "./data/sample_txn.csv"
+  sample_size: 750000
+  val_split: 0.15
+  categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "category"
+  bert_model: "bert-base-uncased"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "gradual"
+  epochs: 10
+
+  # Memory-efficient config
+  batch_size: 256
+  accumulation_steps: 8
+  base_batch_size: 256
+  base_lr: 0.00002
+  # Effective batch = 2048, LR will be scaled to ~5.66e-5
+
+  use_amp: true
+
+  margin: 0.5
+  dropout: 0.1
+  patience: 5
+  min_delta: 0.001
+
+# Config 4: Conservative - Smaller embeddings for faster training
+- csv_path: "./data/sample_txn.csv"
+  sample_size: 750000
+  val_split: 0.15
   categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
   numeric_cols: ["tran_amt_in_ac"]
   label_col: "category"
   bert_model: "bert-base-uncased"
   text_proj_dim: 128
   final_dim: 128
-  freeze_strategy: "gradual"
-  epochs: 7
-  batch_size: 128
-  lr: 0.00002
+  freeze_strategy: "freeze"
+  epochs: 10
+
+  batch_size: 512
+  accumulation_steps: 4
+  base_batch_size: 256
+  base_lr: 0.00002
+
+  use_amp: true
+
   margin: 0.5
   dropout: 0.1
-
-- csv_path: "./data/sample_txn.csv"
-  categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
-  numeric_cols: ["tran_amt_in_ac"]
-  label_col: "category"
-  bert_model: "bert-base-uncased"
-  text_proj_dim: 512
-  final_dim: 512
-  freeze_strategy: "full"
-  epochs: 4
-  batch_size: 64
-  lr: 0.00003
-  margin: 0.5
-  dropout: 0.2
-
-- csv_path: "./data/sample_txn.csv"
-  categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
-  numeric_cols: ["tran_amt_in_ac"]
-  label_col: "category"
-  bert_model: "bert-base-uncased"
-  text_proj_dim: 256
-  final_dim: 256
-  freeze_strategy: "full"
-  epochs: 4
-  batch_size: 64
-  lr: 0.00003
-  margin: 0.5
-  dropout: 0.2
+  patience: 5
+  min_delta: 0.001
