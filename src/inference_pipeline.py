@@ -8,35 +8,6 @@ This module implements a complete inference pipeline following the Amazon Scienc
 2. Retrieve top-k similar transactions for any new transaction
 3. Apply majority voting to assign final label
 4. Return predictions with similar transaction details for debugging
-
-Usage:
-    # Step 1: Build golden record index from training data
-    from src.inference_pipeline import GoldenRecordIndexer
-
-    indexer = GoldenRecordIndexer(
-        artifacts_path="training_artifacts/training_artifacts.pkl",
-        model_path="experiments/model/fusion_encoder_best.pth"
-    )
-    indexer.build_index(
-        csv_path="data/sample_txn.csv",
-        output_path="golden_records.faiss"
-    )
-
-    # Step 2: Run inference
-    from src.inference_pipeline import TransactionInferencePipeline
-
-    pipeline = TransactionInferencePipeline(
-        artifacts_path="training_artifacts/training_artifacts.pkl",
-        model_path="experiments/model/fusion_encoder_best.pth",
-        index_path="golden_records.faiss"
-    )
-
-    result = pipeline.predict(new_transaction, top_k=5)
-    print(f"Predicted: {result['predicted_category']}")
-    print(f"Confidence: {result['confidence']:.2%}")
-
-    for similar in result['similar_transactions']:
-        print(similar)
 """
 
 import torch
@@ -66,7 +37,8 @@ class GoldenRecordIndexer:
         self,
         artifacts_path: str,
         model_path: str,
-        device: Optional[str] = None
+        device: Optional[str] = None,
+        use_fp16: bool = True
     ):
         """
         Initialize indexer with trained model and artifacts.
@@ -75,14 +47,18 @@ class GoldenRecordIndexer:
             artifacts_path: Path to training artifacts (vocab, scaler, etc.)
             model_path: Path to trained encoder model
             device: Device for inference ('cuda', 'cpu', or None for auto)
+            use_fp16: Use FP16 precision for faster inference (default: True)
         """
         self.artifacts_path = artifacts_path
         self.model_path = model_path
         self.device = torch.device(
             device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
         )
+        self.use_fp16 = use_fp16 and self.device.type == 'cuda'
 
         print(f"Initializing GoldenRecordIndexer on {self.device}")
+        if self.use_fp16:
+            print(f"  ✓ FP16 enabled for faster encoding")
         self._load_artifacts()
         self._load_model()
 
@@ -128,12 +104,19 @@ class GoldenRecordIndexer:
         self.encoder.to(self.device)
         self.encoder.eval()
 
+        # Enable FP16 if requested
+        if self.use_fp16:
+            self.encoder = self.encoder.half()
+            print(f"  ✓ Model converted to FP16")
+
     def build_index(
         self,
         csv_path: str,
         output_path: str,
-        batch_size: int = 128,
-        index_type: str = 'L2'
+        batch_size: int = 512,
+        index_type: str = 'HNSW',
+        hnsw_m: int = 32,
+        hnsw_ef_construction: int = 200
     ) -> Tuple[int, int]:
         """
         Build FAISS index from golden record CSV.
@@ -141,8 +124,10 @@ class GoldenRecordIndexer:
         Args:
             csv_path: Path to CSV with golden records
             output_path: Where to save the FAISS index
-            batch_size: Batch size for encoding
-            index_type: 'L2' or 'IP' (inner product)
+            batch_size: Batch size for encoding (default: 512 for speed)
+            index_type: 'L2', 'IP', 'HNSW', 'IVF' (default: HNSW for speed)
+            hnsw_m: HNSW parameter M (connections per layer, higher=better recall)
+            hnsw_ef_construction: HNSW build-time search depth (higher=better quality)
 
         Returns:
             Tuple of (num_records, embedding_dim)
@@ -190,8 +175,12 @@ class GoldenRecordIndexer:
                 categorical = batch['categorical'].to(self.device)
                 numeric = batch['numeric'].to(self.device)
 
+                # Use FP16 if enabled
+                if self.use_fp16:
+                    numeric = numeric.half()
+
                 embeddings = self.encoder(input_ids, attention_mask, categorical, numeric)
-                all_embeddings.append(embeddings.cpu())
+                all_embeddings.append(embeddings.cpu().float())  # Convert back to FP32 for FAISS
                 all_labels.append(batch['labels'].cpu())
 
                 if (batch_idx + 1) % 10 == 0:
@@ -206,12 +195,26 @@ class GoldenRecordIndexer:
 
         # Build FAISS index
         print(f"Building FAISS index (type: {index_type})...")
+
         if index_type == 'L2':
             index = faiss.IndexFlatL2(embedding_dim)
         elif index_type == 'IP':
             index = faiss.IndexFlatIP(embedding_dim)
+        elif index_type == 'HNSW':
+            # HNSW index for fast approximate search
+            index = faiss.IndexHNSWFlat(embedding_dim, hnsw_m)
+            index.hnsw.efConstruction = hnsw_ef_construction
+            print(f"  HNSW params: M={hnsw_m}, efConstruction={hnsw_ef_construction}")
+        elif index_type == 'IVF':
+            # IVF index for large-scale search
+            num_clusters = min(int(np.sqrt(len(all_embeddings))), 1024)
+            quantizer = faiss.IndexFlatL2(embedding_dim)
+            index = faiss.IndexIVFFlat(quantizer, embedding_dim, num_clusters)
+            print(f"  IVF params: num_clusters={num_clusters}")
+            print(f"  Training IVF index...")
+            index.train(all_embeddings)
         else:
-            raise ValueError(f"Unknown index type: {index_type}")
+            raise ValueError(f"Unknown index type: {index_type}. Choose: L2, IP, HNSW, IVF")
 
         index.add(all_embeddings)
         print(f"  ✓ Index built with {index.ntotal} vectors")
@@ -258,7 +261,9 @@ class TransactionInferencePipeline:
         artifacts_path: str,
         model_path: str,
         index_path: str,
-        device: Optional[str] = None
+        device: Optional[str] = None,
+        use_fp16: bool = True,
+        hnsw_ef_search: int = 128
     ):
         """
         Initialize inference pipeline.
@@ -268,31 +273,21 @@ class TransactionInferencePipeline:
             model_path: Path to trained encoder
             index_path: Path to FAISS index
             device: Device for inference
+            use_fp16: Use FP16 precision for faster inference (default: True)
+            hnsw_ef_search: HNSW search parameter (higher=better recall, slower)
         """
         self.artifacts_path = artifacts_path
         self.model_path = model_path
         self.index_path = index_path
-        self.device = torch.device(
-            device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        )
-
-        print(f"\n{'='*80}")
-        print(f"Initializing Transaction Inference Pipeline")
-        print(f"{'='*80}")
-
+        self.device = torch.device(device if device else ('cuda' if torch.cuda.is_available() else 'cpu'))
+        self.use_fp16 = use_fp16 and self.device.type == 'cuda'
+        self.hnsw_ef_search = hnsw_ef_search
         self._load_components()
-
-        print(f"{'='*80}")
-        print(f"Pipeline Ready!")
-        print(f"  Device: {self.device}")
-        print(f"  Index size: {self.index.ntotal} transactions")
-        print(f"  Categories: {len(self.label_mapping)}")
-        print(f"{'='*80}\n")
 
     def _load_components(self):
         """Load all pipeline components."""
         # Load artifacts
-        print(f"[1/4] Loading artifacts...")
+        print(f"Loading artifacts...")
         with open(self.artifacts_path, 'rb') as f:
             artifacts = pickle.load(f)
 
@@ -305,10 +300,10 @@ class TransactionInferencePipeline:
         self.label_mapping = artifacts['label_mapping']
         self.categorical_dims = artifacts['categorical_dims']
         self.tokenizer = BertTokenizer.from_pretrained(self.config['bert_model'])
-        print(f"  ✓ Artifacts loaded")
+        print(f"Artifacts loaded")
 
         # Load model
-        print(f"[2/4] Loading model...")
+        print(f"\n Loading model...")
         self.encoder = FusionEncoder(
             bert_model_name=self.config['bert_model'],
             categorical_dims=self.categorical_dims,
@@ -326,15 +321,26 @@ class TransactionInferencePipeline:
 
         self.encoder.to(self.device)
         self.encoder.eval()
-        print(f"  ✓ Model loaded")
 
-        # Load FAISS index
-        print(f"[3/4] Loading FAISS index...")
+
+        if self.use_fp16: 
+            self.encoder = self.encoder.half()
+            print(f"Model loaded (FP16 enabled)")
+        else:
+            print(f"Model loaded")
+
+        print(f"\nLoading FAISS index...")
         self.index = faiss.read_index(self.index_path)
-        print(f"  ✓ Index loaded ({self.index.ntotal} vectors)")
+
+        # Set HNSW search parameters if applicable
+        if hasattr(self.index, 'hnsw'):
+            self.index.hnsw.efSearch = self.hnsw_ef_search
+            print(f"Index loaded ({self.index.ntotal} vectors, HNSW efSearch={self.hnsw_ef_search})")
+        else:
+            print(f"Index loaded ({self.index.ntotal} vectors)")
 
         # Load metadata
-        print(f"[4/4] Loading metadata...")
+        print(f"\nLoading metadata...")
         metadata_path = self.index_path.replace('.faiss', '_metadata.pkl')
         if os.path.exists(metadata_path):
             with open(metadata_path, 'rb') as f:
@@ -342,104 +348,50 @@ class TransactionInferencePipeline:
                 self.transaction_metadata = metadata.get('transaction_metadata', [])
                 self.golden_labels = metadata.get('labels', None)
                 self.golden_embeddings = metadata.get('embeddings', None)
-            print(f"  ✓ Metadata loaded ({len(self.transaction_metadata)} records)")
+            print(f"Metadata loaded ({len(self.transaction_metadata)} records)")
         else:
             raise FileNotFoundError(f"Metadata not found: {metadata_path}")
 
     def encode_transaction(self, txn: Dict) -> np.ndarray:
         """
         Encode a single transaction into embedding vector.
-
-        Args:
-            txn: Dictionary with transaction features
-
-        Returns:
-            Embedding vector (1, embedding_dim)
         """
         # Text encoding
         text = f"The transaction description is: {txn['tran_partclr']}"
-        encoding = self.tokenizer(
-            text,
-            padding='max_length',
-            truncation=True,
-            max_length=128,
-            return_tensors='pt'
-        )
+        encoding = self.tokenizer(text, padding='max_length', truncation=True, max_length=128, return_tensors='pt')
 
         input_ids = encoding['input_ids'].to(self.device)
         attention_mask = encoding['attention_mask'].to(self.device)
-
-        # Categorical encoding
-        categorical_indices = [
-            self.cat_vocab[col].get(txn.get(col, ''), 0)
-            for col in self.categorical_cols
-        ]
+        categorical_indices = [self.cat_vocab[col].get(txn.get(col, ''), 0) for col in self.categorical_cols]
         categorical = torch.tensor([categorical_indices], dtype=torch.long).to(self.device)
-
-        # Numeric encoding
         numeric_values = [[txn.get(col, 0.0) for col in self.numeric_cols]]
-        numeric = torch.tensor(
-            self.scaler.transform(numeric_values),
-            dtype=torch.float
-        ).to(self.device)
+        numeric = torch.tensor(self.scaler.transform(numeric_values),dtype=torch.float).to(self.device)
 
-        # Generate embedding
+        if self.use_fp16: numeric = numeric.half()
         with torch.no_grad():
-            embedding = self.encoder(
-                input_ids,
-                attention_mask,
-                categorical,
-                numeric
-            ).cpu().numpy().astype('float32')
+            embedding = self.encoder(input_ids,attention_mask,
+                        categorical,numeric).cpu().float().numpy().astype('float32')  # Convert back to FP32
 
         return embedding
 
-    def retrieve_similar(
-        self,
-        query_embedding: np.ndarray,
-        top_k: int = 5
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def retrieve_similar(self, query_embedding, top_k: int = 5):
         """
         Retrieve top-k similar transactions from index.
-
-        Args:
-            query_embedding: Query embedding (1, embedding_dim)
-            top_k: Number of neighbors to retrieve
-
-        Returns:
-            Tuple of (distances, indices) arrays
         """
         distances, indices = self.index.search(query_embedding, top_k)
         return distances[0], indices[0]
 
-    def majority_vote(self, retrieved_labels: np.ndarray) -> Tuple[int, float, Dict]:
+    def majority_vote(self, retrieved_labels):
         """
         Apply majority voting on retrieved labels.
-
-        Args:
-            retrieved_labels: Array of label codes from retrieved transactions
-
-        Returns:
-            Tuple of (predicted_label_code, confidence, vote_distribution)
         """
         label_counts = Counter(retrieved_labels)
         most_common_label, count = label_counts.most_common(1)[0]
         confidence = count / len(retrieved_labels)
-
-        # Get vote distribution
-        vote_dist = {
-            self.label_mapping[label]: cnt
-            for label, cnt in label_counts.items()
-        }
-
+        vote_dist = {self.label_mapping[label]: cnt for label, cnt in label_counts.items()}
         return most_common_label, confidence, vote_dist
 
-    def predict(
-        self,
-        new_txn: Dict,
-        top_k: int = 5,
-        return_embeddings: bool = False
-    ) -> Dict:
+    def predict(self,new_txn, top_k: int = 5,return_embeddings: bool = False):
         """
         Predict category for new transaction using RAG approach.
 
@@ -458,20 +410,13 @@ class TransactionInferencePipeline:
                 - distances: Similarity distances
                 - query_embedding: (optional) Query embedding
         """
-        # Step 1: Encode new transaction
         query_emb = self.encode_transaction(new_txn)
-
-        # Step 2: Retrieve similar transactions
         distances, indices = self.retrieve_similar(query_emb, top_k)
-
-        # Step 3: Get labels of retrieved transactions
         retrieved_labels = self.golden_labels[indices]
-
-        # Step 4: Majority voting
         pred_label_code, confidence, vote_dist = self.majority_vote(retrieved_labels)
         predicted_category = self.label_mapping[pred_label_code]
 
-        # Step 5: Build similar transactions list
+        # SBuild similar transactions list
         similar_transactions = []
         for idx, distance in zip(indices, distances):
             txn_data = self.transaction_metadata[idx]
@@ -491,7 +436,6 @@ class TransactionInferencePipeline:
                 'label': self.label_mapping[self.golden_labels[idx]]
             })
 
-        # Build result
         result = {
             'predicted_category': predicted_category,
             'confidence': float(confidence),
@@ -501,41 +445,89 @@ class TransactionInferencePipeline:
             'distances': distances.tolist()
         }
 
-        if return_embeddings:
-            result['query_embedding'] = query_emb
-
+        if return_embeddings: result['query_embedding'] = query_emb
         return result
 
-    def predict_batch(
-        self,
-        transactions: List[Dict],
-        top_k: int = 5
-    ) -> List[Dict]:
+    def predict_batch(self, transactions, top_k: int = 5, batch_size: int = 512):
         """
-        Predict categories for multiple transactions.
-
-        Args:
-            transactions: List of transaction dictionaries
-            top_k: Number of similar transactions per query
-
-        Returns:
-            List of prediction results
+        Predict categories for multiple transactions (optimized batch mode).
         """
+        if len(transactions) == 0: return []
+
+        all_embeddings = []
+        for i in range(0, len(transactions), batch_size):
+            batch_txns = transactions[i:i+batch_size]
+            texts = [f"The transaction description is: {txn['tran_partclr']}" for txn in batch_txns]
+            encodings = self.tokenizer(texts,padding='max_length',truncation=True,max_length=128,return_tensors='pt')
+
+            input_ids = encodings['input_ids'].to(self.device)
+            attention_mask = encodings['attention_mask'].to(self.device)
+
+            categorical_batch = []
+            for txn in batch_txns:
+                categorical_indices = [
+                    self.cat_vocab[col].get(txn.get(col, ''), 0)
+                    for col in self.categorical_cols]
+                categorical_batch.append(categorical_indices)
+            categorical = torch.tensor(categorical_batch, dtype=torch.long).to(self.device)
+
+            numeric_batch = [[txn.get(col, 0.0) for col in self.numeric_cols] for txn in batch_txns]
+            numeric = torch.tensor(
+                self.scaler.transform(numeric_batch),
+                dtype=torch.float).to(self.device)
+
+            if self.use_fp16: numeric = numeric.half()
+            with torch.no_grad():
+                embeddings = self.encoder(input_ids, attention_mask, categorical, numeric).cpu().float().numpy().astype('float32')
+
+            all_embeddings.append(embeddings)
+
+        all_embeddings = np.vstack(all_embeddings)
+        distances, indices = self.index.search(all_embeddings, top_k)
+
         results = []
-        for txn in transactions:
-            result = self.predict(txn, top_k)
+        for i, txn in enumerate(transactions):
+            txn_distances = distances[i]
+            txn_indices = indices[i]
+            retrieved_labels = self.golden_labels[txn_indices]
+            pred_label_code, confidence, vote_dist = self.majority_vote(retrieved_labels)
+            predicted_category = self.label_mapping[pred_label_code]
+            similar_transactions = []
+            for idx, distance in zip(txn_indices, txn_distances):
+                txn_data = self.transaction_metadata[idx]
+                similar_transactions.append({
+                    'index': int(idx),
+                    'transaction': {
+                        'description': txn_data.get('tran_partclr', 'N/A'),
+                        'amount': float(txn_data.get('tran_amt_in_ac', 0.0)),
+                        'dr_cr': txn_data.get('dr_cr_indctor', 'N/A'),
+                        'mode': txn_data.get('tran_mode', 'N/A'),
+                        'sal_flag': txn_data.get('sal_flag', 'N/A'),
+                        'merchant': txn_data.get('merchant', 'N/A'),
+                        'date': txn_data.get('tran_date', 'N/A'),
+                        'category': txn_data.get(self.label_col, 'N/A')
+                    },
+                    'similarity_distance': float(distance),
+                    'label': self.label_mapping[self.golden_labels[idx]]
+                })
+
+            result = {
+                'predicted_category': predicted_category,
+                'confidence': float(confidence),
+                'vote_distribution': vote_dist,
+                'top_k_labels': [self.label_mapping[label] for label in retrieved_labels],
+                'similar_transactions': similar_transactions,
+                'distances': txn_distances.tolist()
+            }
+
             results.append(result)
+
         return results
 
 
 def print_prediction_result(result: Dict, transaction: Dict, top_k: int = 5):
     """
     Pretty print prediction results.
-
-    Args:
-        result: Prediction result from pipeline
-        transaction: Original transaction dict
-        top_k: Number of similar transactions shown
     """
     print("\n" + "="*80)
     print("PREDICTION RESULT")

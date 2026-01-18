@@ -1,17 +1,5 @@
 """
 Run Inference Pipeline - Transaction Tagging with RAG
-
-This script demonstrates how to use the inference pipeline for transaction tagging.
-
-Usage:
-    # Build index and run inference
-    python run_inference.py
-
-    # Skip index building if already exists
-    python run_inference.py --skip-build
-
-    # Use custom paths
-    python run_inference.py --model path/to/model.pth --index path/to/index.faiss
 """
 
 import argparse
@@ -60,8 +48,19 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=128,
-        help='Batch size for encoding during index building'
+        default=512,
+        help='Batch size for encoding during index building (default: 512 for speed)'
+    )
+    parser.add_argument(
+        '--index-type',
+        default='HNSW',
+        choices=['L2', 'IP', 'HNSW', 'IVF'],
+        help='FAISS index type (default: HNSW for speed)'
+    )
+    parser.add_argument(
+        '--no-fp16',
+        action='store_true',
+        help='Disable FP16 precision (slower but may be more stable)'
     )
 
     args = parser.parse_args()
@@ -76,14 +75,21 @@ def main():
 
         indexer = GoldenRecordIndexer(
             artifacts_path=args.artifacts,
-            model_path=args.model
+            model_path=args.model,
+            use_fp16=not args.no_fp16
         )
 
         indexer.build_index(
             csv_path=args.csv,
             output_path=args.index,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            index_type=args.index_type
         )
+
+        print(f"\n✨ Optimizations enabled:")
+        print(f"   - Index type: {args.index_type}")
+        print(f"   - Batch size: {args.batch_size}")
+        print(f"   - FP16: {not args.no_fp16}")
     else:
         print(f"\nSkipping index build (already exists at {args.index})")
 
@@ -97,7 +103,8 @@ def main():
     pipeline = TransactionInferencePipeline(
         artifacts_path=args.artifacts,
         model_path=args.model,
-        index_path=args.index
+        index_path=args.index,
+        use_fp16=not args.no_fp16
     )
 
     # ========================================================================
