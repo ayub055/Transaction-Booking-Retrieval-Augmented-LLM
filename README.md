@@ -1,6 +1,12 @@
-# Transaction Tagger - Complete Workflow
+# Transaction Tagger using Retreival augmented LLM
 
-## 📋 Overview
+## 📋 Project
+
+**Transaction Tagger** is an automated financial transaction categorization system that solves the problem of transaction tagging in finance using a **Retrieval-Augmented Generation (RAG)** approach, inspired by [Amazon Science's "Cash transaction booking via retrieval augmented LLM"](https://www.amazon.science/publications/cash-transaction-booking-via-retrieval-augmented-llm). The system employs a multi-modal fusion encoder combining BERT for text understanding, learned categorical embeddings, and numerical features, trained with triplet margin loss for metric learning. Inference leverages FAISS HNSW indexing for fast similarity search over golden records, with majority voting for robust predictions. Optimized with FP16 precision and batch processing, achieving 10-50x speedup to process 1M transactions in ~15 minutes.
+
+---
+
+## 📋 Workflow Guide
 
 This guide shows the **complete step-by-step workflow** from training to inference.
 
@@ -112,7 +118,6 @@ golden_records_metadata.pkl    # Transaction metadata + labels + embeddings
 - Use the full dataset with labels (same as training data)
 - This is "retrieval corpus"
 - You can rebuild this when you have new labeled data
-
 
 ## Step 4: Run Inference
 
