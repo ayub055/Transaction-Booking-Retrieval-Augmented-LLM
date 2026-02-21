@@ -50,17 +50,25 @@ class FusionEncoder(nn.Module):
         cat_total_dim = len(categorical_dims) * 4
         mlp_input_dim = text_proj_dim + cat_total_dim + numeric_dim
         
-        # Final MLP
+        # Final MLP — deeper head with LayerNorm for stable training
         self.mlp = nn.Sequential(
-            nn.Linear(mlp_input_dim, final_dim),
-            nn.ReLU(),
-            nn.Dropout(self.p))
+            nn.Linear(mlp_input_dim, 512),
+            nn.LayerNorm(512),
+            nn.GELU(),
+            nn.Dropout(self.p),
+            nn.Linear(512, final_dim),
+        )
 
     def forward(self, input_ids, attention_mask, categorical, numeric):
         # Text encoding
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
 
-        text_embedding = outputs.pooler_output  # [batch, bert_hidden_dim]
+        # Mean pooling over token embeddings (better than [CLS] pooler_output
+        # for similarity tasks — avoids anisotropy of the NSP-trained pooler).
+        token_embeds = outputs.last_hidden_state          # [B, seq_len, hidden]
+        mask = attention_mask.unsqueeze(-1).float()       # [B, seq_len, 1]
+        text_embedding = (token_embeds * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+
         text_proj = self.text_proj(text_embedding)  # [batch, text_proj_dim]
 
         # Categorical encoding

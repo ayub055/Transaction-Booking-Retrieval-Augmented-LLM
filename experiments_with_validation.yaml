@@ -1,32 +1,66 @@
-# Updated experiment configurations with validation and early stopping
+# Experiment configurations for FusionEncoder training
+#
+# New fields (all optional, with sensible defaults):
+#   loss_type:           'triplet' (default) or 'supcon' (Supervised Contrastive)
+#   temperature:         SupCon temperature (default 0.07)
+#   ood_label:           Label string to exclude from training (default 'other')
+#   balanced_sampling:   Use ClassBalancedBatchSampler for equal class representation
+#   inv_freq_weighting:  Apply sqrt(N/n_class) loss weights to counter majority dominance
+#   semi_hard_mining:    Use semi-hard negative mining instead of random triplets
+#   max_per_class_index: Max samples per class in stratified FAISS index (default 500)
+#   use_prototypes:      Blend prototype similarity with k-NN vote at inference
+#   prototype_alpha:     Weight given to k-NN vote (1-alpha → prototype), default 0.6
+#   ood_percentile:      Fallback percentile for OOD threshold (default 95)
+#   bert_model:          Set to "ai4bharat/IndicBERTv2-MLM-Sam-TLM" for IndicBERT
 
+# ---------------------------------------------------------------------------
+# Experiment 1 — Baseline: triplet loss, frozen BERT, 256-D embeddings
+# (matches the original training setup)
+# ---------------------------------------------------------------------------
 - csv_path: "./data/sample_txn.csv"
   categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
   numeric_cols: ["tran_amt_in_ac"]
   label_col: "category"
+  ood_label: "other"
   bert_model: "bert-base-uncased"
   text_proj_dim: 256
   final_dim: 256
   freeze_strategy: "freeze"
+  loss_type: "triplet"
   epochs: 20
   batch_size: 128
   lr: 0.00001
   margin: 0.5
   dropout: 0.1
-  val_split: 0.15  # 15% validation split
-  patience: 5  # Early stopping patience
-  min_delta: 0.001  # Minimum improvement threshold
+  val_split: 0.15
+  patience: 5
+  min_delta: 0.001
   sample_size: 40000
+  # Inference index settings
+  max_per_class_index: 500
+  use_prototypes: true
+  prototype_alpha: 0.6
+  ood_percentile: 95
 
+# ---------------------------------------------------------------------------
+# Experiment 2 — SupCon loss + class-balanced sampling + inverse-freq weights
+# Recommended for imbalanced 43-class real data (minority classes ~250 samples)
+# ---------------------------------------------------------------------------
 - csv_path: "./data/sample_txn.csv"
   categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
   numeric_cols: ["tran_amt_in_ac"]
   label_col: "category"
+  ood_label: "other"
   bert_model: "bert-base-uncased"
-  text_proj_dim: 128
-  final_dim: 128
+  text_proj_dim: 256
+  final_dim: 256
   freeze_strategy: "gradual"
-  epochs: 20
+  loss_type: "supcon"
+  temperature: 0.07
+  balanced_sampling: true
+  inv_freq_weighting: true
+  semi_hard_mining: true
+  epochs: 30
   batch_size: 128
   lr: 0.00002
   margin: 0.5
@@ -35,16 +69,61 @@
   patience: 7
   min_delta: 0.001
   sample_size: 40000
+  max_per_class_index: 500
+  use_prototypes: true
+  prototype_alpha: 0.6
+  ood_percentile: 95
 
+# ---------------------------------------------------------------------------
+# Experiment 3 — SupCon + IndicBERT (best for Indian banking transliterated text)
+# Handles UPI aliases, Telugu/Hindi names, IMPS strings natively
+# ---------------------------------------------------------------------------
 - csv_path: "./data/sample_txn.csv"
   categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
   numeric_cols: ["tran_amt_in_ac"]
   label_col: "category"
+  ood_label: "other"
+  bert_model: "ai4bharat/IndicBERTv2-MLM-Sam-TLM"
+  text_proj_dim: 256
+  final_dim: 256
+  freeze_strategy: "gradual"
+  loss_type: "supcon"
+  temperature: 0.07
+  balanced_sampling: true
+  inv_freq_weighting: true
+  semi_hard_mining: true
+  epochs: 30
+  batch_size: 128
+  lr: 0.00001
+  margin: 0.5
+  dropout: 0.1
+  val_split: 0.15
+  patience: 7
+  min_delta: 0.001
+  sample_size: 40000
+  max_per_class_index: 500
+  use_prototypes: true
+  prototype_alpha: 0.6
+  ood_percentile: 95
+
+# ---------------------------------------------------------------------------
+# Experiment 4 — Large embedding space, full fine-tuning, SupCon
+# ---------------------------------------------------------------------------
+- csv_path: "./data/sample_txn.csv"
+  categorical_cols: ["tran_mode", "dr_cr_indctor", "sal_flag"]
+  numeric_cols: ["tran_amt_in_ac"]
+  label_col: "category"
+  ood_label: "other"
   bert_model: "bert-base-uncased"
   text_proj_dim: 512
   final_dim: 512
   freeze_strategy: "full"
-  epochs: 20
+  loss_type: "supcon"
+  temperature: 0.05
+  balanced_sampling: true
+  inv_freq_weighting: true
+  semi_hard_mining: true
+  epochs: 25
   batch_size: 64
   lr: 0.00003
   margin: 0.5
@@ -53,3 +132,7 @@
   patience: 5
   min_delta: 0.001
   sample_size: 40000
+  max_per_class_index: 500
+  use_prototypes: true
+  prototype_alpha: 0.6
+  ood_percentile: 95

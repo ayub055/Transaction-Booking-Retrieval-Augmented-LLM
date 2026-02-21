@@ -1,6 +1,9 @@
 import torch
 import numpy as np
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, f1_score, classification_report,
+    roc_auc_score,
+)
 from collections import defaultdict
 
 
@@ -167,7 +170,107 @@ def evaluate_validation_metrics(encoder, dataloader, triplet_loss_fn, device,
     for k in k_values:
         metrics[f'recall@{k}'] = np.mean(recall_at_k[k])
 
+    # Add macro-F1 across classes (the key metric for imbalanced 43-class data)
+    if len(correct_predictions) > 0:
+        preds_arr  = np.array(correct_predictions)   # binary: 1=correct, 0=wrong
+        labels_arr = all_labels.numpy()
+        pred_labels = []
+        # Reconstruct per-sample predicted label from sorted neighbours
+        for i in range(num_samples):
+            distances_i = dist_matrix[i].clone()
+            distances_i[i] = float('inf')
+            sorted_idx  = torch.argsort(distances_i)
+            pred_labels.append(all_labels[sorted_idx[0]].item())
+
+        pred_labels = np.array(pred_labels)
+        true_labels = labels_arr
+
+        metrics['macro_f1']    = float(f1_score(true_labels, pred_labels, average='macro',  zero_division=0))
+        metrics['weighted_f1'] = float(f1_score(true_labels, pred_labels, average='weighted', zero_division=0))
+
+        # Per-class F1 (useful for monitoring 250-sample minority classes)
+        per_class_f1 = f1_score(true_labels, pred_labels, average=None, zero_division=0)
+        metrics['per_class_f1'] = per_class_f1.tolist()
+
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Expected Calibration Error (ECE)
+# ---------------------------------------------------------------------------
+def compute_ece(confidences: np.ndarray, correct: np.ndarray, n_bins: int = 10) -> float:
+    """
+    Expected Calibration Error.  Measures whether reported confidence ≈ actual
+    accuracy.
+
+    Args:
+        confidences: [N] float in [0, 1] — model confidence per prediction.
+        correct:     [N] int {0, 1}      — 1 if prediction was correct.
+        n_bins:      number of equal-width confidence bins.
+
+    Returns:
+        ECE scalar (lower is better; 0 = perfect calibration).
+    """
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    ece       = 0.0
+    N         = len(confidences)
+
+    for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+        mask  = (confidences > lo) & (confidences <= hi)
+        if mask.sum() == 0:
+            continue
+        bin_conf = confidences[mask].mean()
+        bin_acc  = correct[mask].mean()
+        ece     += mask.sum() / N * abs(bin_conf - bin_acc)
+
+    return float(ece)
+
+
+# ---------------------------------------------------------------------------
+# OOD Detection AUROC
+# ---------------------------------------------------------------------------
+def compute_ood_auroc(
+    in_dist_distances: np.ndarray,
+    ood_distances:     np.ndarray,
+) -> float:
+    """
+    Compute AUROC for OOD detection using nearest-neighbour distances as scores.
+
+    Higher distance → more likely OOD.  Labels: 0=in-distribution, 1=OOD.
+
+    Args:
+        in_dist_distances: [N_in] distances of in-distribution queries.
+        ood_distances:     [N_ood] distances of OOD ("other") queries.
+
+    Returns:
+        AUROC scalar in [0, 1].  0.5 = random; 1.0 = perfect OOD detection.
+    """
+    scores = np.concatenate([in_dist_distances, ood_distances])
+    labels = np.array([0] * len(in_dist_distances) + [1] * len(ood_distances))
+    try:
+        return float(roc_auc_score(labels, scores))
+    except ValueError:
+        return float('nan')
+
+
+# ---------------------------------------------------------------------------
+# Per-class F1 report (human-readable)
+# ---------------------------------------------------------------------------
+def print_per_class_report(
+    true_labels:   np.ndarray,
+    pred_labels:   np.ndarray,
+    label_mapping: dict,
+    top_n: int = 10,
+):
+    """
+    Print a classification report showing per-class F1, precision, recall.
+    Highlights the `top_n` worst-performing classes.
+    """
+    names = [label_mapping.get(i, str(i)) for i in sorted(label_mapping.keys())]
+    print("\n" + "=" * 60)
+    print("Per-class Classification Report (sklearn)")
+    print("=" * 60)
+    print(classification_report(true_labels, pred_labels, target_names=names, zero_division=0))
 
 
 # Legacy functions for backward compatibility
@@ -207,4 +310,8 @@ def print_validation_report(metrics, epoch):
 
     if 'val_loss' in metrics:
         print(f"Val Loss:       {metrics['val_loss']:.4f}")
+    if 'macro_f1' in metrics:
+        print(f"Macro-F1:       {metrics['macro_f1']:.4f}")
+    if 'weighted_f1' in metrics:
+        print(f"Weighted-F1:    {metrics['weighted_f1']:.4f}")
     print("="*60 + "\n")
