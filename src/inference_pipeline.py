@@ -367,6 +367,7 @@ class TransactionInferencePipeline:
         index_path: str,
         device: Optional[str] = None,
         use_fp16: bool = True,
+        use_gpu_index: bool = False,   # move FAISS index to GPU (IVF/Flat only, not HNSW)
         hnsw_ef_search: int = 128,
         knn_weight: float = 0.6,       # α in: α·knn + (1-α)·prototype
         confidence_threshold: float = 0.75,
@@ -378,6 +379,7 @@ class TransactionInferencePipeline:
             device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
         )
         self.use_fp16            = use_fp16 and self.device.type == 'cuda'
+        self.use_gpu_index       = use_gpu_index and self.device.type == 'cuda'
         self.hnsw_ef_search      = hnsw_ef_search
         self.knn_weight          = knn_weight
         self.confidence_threshold = confidence_threshold
@@ -419,6 +421,24 @@ class TransactionInferencePipeline:
         if hasattr(self.index, 'hnsw'):
             self.index.hnsw.efSearch = self.hnsw_ef_search
 
+        # Move FAISS index to GPU if requested.
+        # HNSW is not supported by faiss-gpu — only Flat / IVF indices are.
+        self._gpu_res = None
+        if self.use_gpu_index:
+            if hasattr(self.index, 'hnsw'):
+                print("  [INFO] HNSW index cannot run on GPU. "
+                      "Rebuild with --index-type IVF to enable GPU FAISS. "
+                      "Continuing with CPU FAISS + GPU BERT encoding.")
+            else:
+                try:
+                    self._gpu_res = faiss.StandardGpuResources()
+                    self.index    = faiss.index_cpu_to_gpu(self._gpu_res, 0, self.index)
+                    print(f"  ✓ FAISS index moved to GPU (device 0)")
+                except Exception as exc:
+                    print(f"  [WARNING] Could not move FAISS index to GPU: {exc}. "
+                          "Ensure faiss-gpu is installed. Continuing on CPU.")
+                    self._gpu_res = None
+
         metadata_path = self.index_path.replace('.faiss', '_metadata.pkl')
         if not os.path.exists(metadata_path):
             raise FileNotFoundError(f"Metadata not found: {metadata_path}")
@@ -434,18 +454,28 @@ class TransactionInferencePipeline:
 
         # Stack prototypes into a matrix for fast batch scoring [num_classes, D]
         if self.prototypes:
-            sorted_labels         = sorted(self.prototypes.keys())
-            self._proto_labels    = sorted_labels
-            self._proto_matrix    = np.stack(
+            sorted_labels      = sorted(self.prototypes.keys())
+            self._proto_labels = sorted_labels
+            self._proto_matrix = np.stack(
                 [self.prototypes[l] for l in sorted_labels], axis=0
             ).astype('float32')   # [C, D]
+
+            # Keep a GPU torch tensor copy for O(1) batched cosine similarity
+            # in predict_batch: one [N, D] @ [D, C] matmul instead of N loops.
+            if self.device.type == 'cuda':
+                proto_t = torch.from_numpy(self._proto_matrix).to(self.device)
+                self._proto_tensor = proto_t.half() if self.use_fp16 else proto_t
+            else:
+                self._proto_tensor = None
         else:
             self._proto_labels  = []
             self._proto_matrix  = None
+            self._proto_tensor  = None
 
-        print(f"Pipeline ready | index={self.index.ntotal} vectors "
+        print(f"Pipeline ready | device={self.device} | index={self.index.ntotal} vectors "
               f"| prototypes={len(self.prototypes)} "
-              f"| OOD threshold={self.ood_threshold:.4f if self.ood_threshold else 'N/A'}")
+              f"| OOD threshold={self.ood_threshold:.4f if self.ood_threshold else 'N/A'} "
+              f"| FP16={self.use_fp16}")
 
     # ------------------------------------------------------------------
     def encode_transaction(self, txn: Dict) -> np.ndarray:
@@ -496,14 +526,39 @@ class TransactionInferencePipeline:
     # ------------------------------------------------------------------
     def _prototype_scores(self, query_embedding: np.ndarray) -> dict:
         """
-        Cosine similarity of query to each class prototype.
-        Returns {label_code: score} sorted descending.
+        Cosine similarity of a single query to each class prototype.
+        Used by predict() (single-transaction path).
+        Returns {label_code: score}.
         """
         if self._proto_matrix is None:
             return {}
-        # query is already L2-normalised; prototypes are L2-normalised
         sims = (self._proto_matrix @ query_embedding.T).flatten()  # [C]
         return {self._proto_labels[i]: float(sims[i]) for i in range(len(self._proto_labels))}
+
+    def _prototype_scores_batch(self, embeddings: np.ndarray) -> np.ndarray:
+        """
+        Batched cosine similarity for N queries against all C prototypes.
+        Returns [N, C] float32 array.
+
+        GPU path: one [N,D]@[D,C] tensor matmul on GPU — replaces N separate
+                  numpy matmuls that predict_batch used to run in a loop.
+        CPU path: single numpy matmul (still faster than a loop).
+        """
+        if self._proto_matrix is None:
+            return np.zeros((len(embeddings), 0), dtype='float32')
+
+        if self._proto_tensor is not None:
+            # GPU — zero Python-loop overhead
+            q = torch.from_numpy(embeddings).to(self.device)
+            if self.use_fp16:
+                q = q.half()
+            with torch.no_grad():
+                sims = (q @ self._proto_tensor.T).cpu().float().numpy()  # [N, C]
+        else:
+            # CPU fallback — still one batched matmul
+            sims = embeddings @ self._proto_matrix.T  # [N, C]
+
+        return sims.astype('float32')
 
     # ------------------------------------------------------------------
     def _combine_scores(
@@ -659,15 +714,20 @@ class TransactionInferencePipeline:
                 embs = self.encoder(ids, mask, cat, num).cpu().float().numpy().astype('float32')
             all_embeddings.append(embs)
 
-        all_embeddings = np.vstack(all_embeddings)
-        all_distances, all_indices = self.index.search(all_embeddings, top_k)
+        all_embeddings = np.vstack(all_embeddings)             # [N, D]
+        all_distances, all_indices = self.index.search(all_embeddings, top_k)  # [N, k]
+
+        # --- Batched prototype scoring: one GPU matmul for all N queries -----
+        # Old code called _prototype_scores() per-sample inside the loop below
+        # (N separate [C,D]@[D,1] matmuls).  This replaces it with one
+        # [N,D]@[D,C] = [N,C] matmul, giving ~N× speedup for large batches.
+        all_proto_sims = self._prototype_scores_batch(all_embeddings)  # [N, C]
 
         results = []
         for i, txn in enumerate(transactions):
             distances        = all_distances[i]
             indices          = all_indices[i]
             retrieved_labels = self.golden_labels[indices]
-            query_emb        = all_embeddings[i:i+1]
 
             min_dist = float(distances.min())
             is_ood   = (self.ood_threshold is not None) and (min_dist > self.ood_threshold)
@@ -678,7 +738,12 @@ class TransactionInferencePipeline:
             for lbl, w in zip(retrieved_labels, weights):
                 knn_label_scores[int(lbl)] += float(w) / float(total_w)
 
-            proto_scores = self._prototype_scores(query_emb)
+            # Build proto_scores dict from pre-computed row i
+            proto_scores = {
+                self._proto_labels[j]: float(all_proto_sims[i, j])
+                for j in range(len(self._proto_labels))
+            }
+
             pred_label, confidence = self._combine_scores(knn_label_scores, proto_scores)
             predicted_category = self.label_mapping.get(pred_label, 'other')
 

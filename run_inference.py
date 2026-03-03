@@ -120,6 +120,10 @@ def main():
                              'representatives to prevent density bias in k-NN retrieval.')
     parser.add_argument('--no-fp16', action='store_true',
                         help='Disable FP16 precision')
+    parser.add_argument('--gpu-index', action='store_true',
+                        help='Move FAISS index to GPU for faster search. '
+                             'Only works with IVF/Flat index types (not HNSW). '
+                             'Requires faiss-gpu: pip install faiss-gpu')
 
     # ---- Inference settings ----
     parser.add_argument('--top-k', type=int, default=10,
@@ -186,6 +190,7 @@ def main():
         model_path=args.model,
         index_path=args.index,
         use_fp16=use_fp16,
+        use_gpu_index=args.gpu_index,
         knn_weight=args.knn_weight,
         confidence_threshold=args.confidence_threshold,
     )
