@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from collections import Counter
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from sklearn.model_selection import train_test_split
 from torch.cuda.amp import autocast, GradScaler
 import json
@@ -277,7 +277,7 @@ def run_experiment(config):
     val_df   = val_df.reset_index(drop=True)
     print(f"Train samples: {len(train_df)}, Validation samples: {len(val_df)}")
 
-    tokenizer = BertTokenizer.from_pretrained(config["bert_model"])
+    tokenizer = AutoTokenizer.from_pretrained(config["bert_model"])
 
     train_dataset = TransactionDataset(
         train_df, tokenizer,

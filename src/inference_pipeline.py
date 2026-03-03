@@ -19,7 +19,7 @@ import pickle
 import os
 from typing import Dict, List, Optional, Tuple
 from collections import Counter, defaultdict
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from torch.utils.data import DataLoader
 
 from src.fusion_encoder import FusionEncoder
@@ -92,7 +92,7 @@ class GoldenRecordIndexer:
         self.scaler          = artifacts['scaler']
         self.label_mapping   = artifacts['label_mapping']
         self.categorical_dims = artifacts['categorical_dims']
-        self.tokenizer       = BertTokenizer.from_pretrained(self.config['bert_model'])
+        self.tokenizer       = AutoTokenizer.from_pretrained(self.config['bert_model'])
         print(f"  ✓ Loaded {len(self.label_mapping)} label categories")
 
     def _load_model(self):
@@ -195,6 +195,26 @@ class GoldenRecordIndexer:
         df = _normalise_df(df)
         df = df[df[self.label_col] != ood_label].reset_index(drop=True)
         print(f"  ✓ Loaded {len(df)} in-distribution golden records")
+
+        # Validate: every golden record category must exist in the training
+        # label_mapping.  Golden records can come from a different dataset than
+        # training data (and that is intentional — expert-curated golden records
+        # improve retrieval quality independently of the training corpus), but
+        # they must share the same 43-category taxonomy.
+        known_categories = set(self.label_mapping.values())
+        golden_categories = set(df[self.label_col].unique())
+        unknown = golden_categories - known_categories
+        if unknown:
+            raise ValueError(
+                f"Golden records contain {len(unknown)} category/ies not found in the "
+                f"training label_mapping:\n  {sorted(unknown)}\n"
+                f"Known categories ({len(known_categories)}): {sorted(known_categories)}\n"
+                f"Either fix the golden record labels or retrain with these categories."
+            )
+        missing = known_categories - golden_categories
+        if missing:
+            print(f"  [WARNING] {len(missing)} training categor(ies) have NO golden records "
+                  f"and will never be predicted:\n    {sorted(missing)}")
 
         all_embeddings, all_labels = self._encode_dataset(df, batch_size)
         print(f"  ✓ Encoded {len(all_embeddings)} embeddings (dim={all_embeddings.shape[1]})")
@@ -398,7 +418,7 @@ class TransactionInferencePipeline:
         self.scaler           = artifacts['scaler']
         self.label_mapping    = artifacts['label_mapping']
         self.categorical_dims = artifacts['categorical_dims']
-        self.tokenizer        = BertTokenizer.from_pretrained(self.config['bert_model'])
+        self.tokenizer        = AutoTokenizer.from_pretrained(self.config['bert_model'])
 
         self.encoder = FusionEncoder(
             bert_model_name=self.config['bert_model'],

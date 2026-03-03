@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import BertModel
+from transformers import AutoModel
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from src.data_loader import TransactionDataset, collate_fn
 from src.triplet_sampler import TripletSampler
 
@@ -35,7 +35,7 @@ class FusionEncoder(nn.Module):
         self.lr = lr
         self.p = p
         self.normalize_embeddings = normalize_embeddings
-        self.bert = BertModel.from_pretrained(bert_model_name)
+        self.bert = AutoModel.from_pretrained(bert_model_name)
         bert_hidden_dim = self.bert.config.hidden_size
         
         # Projection for text embedding
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     numeric_cols = ['tran_amt_in_ac']
     label_col = 'category' 
 
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     dataset = TransactionDataset(df, tokenizer, categorical_cols, numeric_cols, label_col)
     dataloader = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     

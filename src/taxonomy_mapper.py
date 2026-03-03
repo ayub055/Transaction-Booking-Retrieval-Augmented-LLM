@@ -78,7 +78,7 @@ class TaxonomyMapper:
         """
         Args:
             encoder:               Trained FusionEncoder (used in eval mode).
-            tokenizer:             BertTokenizer matching the encoder.
+            tokenizer:             AutoTokenizer matching the encoder (BERT or IndicBERT).
             category_descriptions: {category_name: description_string}.
                                    Defaults to DEFAULT_CATEGORY_DESCRIPTIONS.
             device:                Torch device.

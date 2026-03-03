@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 
 # Pre-known banking modes so real-data values (UPI, IMPS, etc.) are never <UNK>
 KNOWN_TRAN_MODES = [
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     numeric_cols = ['tran_amt_in_ac']
     label_col = 'category'
     
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     dataset = TransactionDataset(df, tokenizer, categorical_cols, numeric_cols, label_col)
 
     for i in range(3):

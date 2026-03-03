@@ -23,7 +23,7 @@ import os
 import pickle
 
 import pandas as pd
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 
 from src.data_loader import TransactionDataset, _normalise_df
 
@@ -90,7 +90,7 @@ def main():
     # 3. Build TransactionDataset (fits vocab + scaler on in-distribution data)
     # -----------------------------------------------------------------------
     print("\nFitting vocabularies and scaler...")
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model)
+    tokenizer = AutoTokenizer.from_pretrained(args.bert_model)
     dataset   = TransactionDataset(
         df_train, tokenizer, categorical_cols, numeric_cols, args.label_col,
     )
