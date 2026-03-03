@@ -137,13 +137,12 @@ def main():
 
     # ---- LLM fallback ----
     parser.add_argument('--use-llm', action='store_true',
-                        help='Enable LLM few-shot fallback for uncertain / OOD transactions')
-    parser.add_argument('--llm-backend', default='ollama',
-                        choices=['anthropic', 'openai', 'ollama'],
-                        help='LLM backend for the few-shot classifier')
-    parser.add_argument('--llm-model', default=None,
-                        help='LLM model name (defaults: anthropic→claude-haiku-4-5-20251001, '
-                             'openai→gpt-4o-mini, ollama→llama3.1)')
+                        help='Enable LLM few-shot fallback via local Ollama (llama3.2). '
+                             'Requires: ollama serve && ollama pull llama3.2')
+    parser.add_argument('--llm-model', default='llama3.2',
+                        help='Ollama model tag to use (default: llama3.2)')
+    parser.add_argument('--ollama-url', default='http://localhost:11434',
+                        help='Ollama server base URL (default: http://localhost:11434)')
 
     args = parser.parse_args()
 
@@ -202,21 +201,16 @@ def main():
     if args.use_llm:
         try:
             from src.llm_classifier import LLMClassifier
-            backend_kwargs = {}
-            if args.llm_model:          # don't pass None — let backend use its default
-                backend_kwargs['model'] = args.llm_model
             llm_clf = LLMClassifier(
-                pipeline,               # required: pipeline reference for fallback encoding
+                pipeline,
                 categories=list(pipeline.label_mapping.values()),
-                provider=args.llm_backend,
+                model=args.llm_model,
+                base_url=args.ollama_url,
                 confidence_threshold=args.confidence_threshold,
-                **backend_kwargs,
             )
-            print(f"\nLLM fallback enabled: backend={args.llm_backend}, "
-                  f"model={llm_clf.llm.model}")
         except Exception as exc:
             print(f"\n[WARNING] Could not load LLM classifier: {exc}")
-            print("         Proceeding without LLM fallback.\n")
+            print("         Make sure Ollama is running: ollama serve && ollama pull llama3.2\n")
 
     # ========================================================================
     # STEP 4: Load transactions and run predictions

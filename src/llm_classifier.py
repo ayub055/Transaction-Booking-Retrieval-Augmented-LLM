@@ -1,12 +1,12 @@
 """
 LLM-Augmented Few-Shot Classifier (Phase 3 — the missing Amazon paper component)
 
-This module implements the RAG reasoning step that was absent from the original
-pipeline.  The retrieved k-NN examples become few-shot demonstrations for an
-LLM that can:
-  • Reason over ambiguous UPI/IMPS strings
-  • Output "other" when no category fits (open-world OOD decision)
-  • Handle the target 43-category taxonomy independently of the training taxonomy
+Uses a locally running Ollama model (default: llama3.2) as the LLM backend.
+No API keys or external services required — fully local inference.
+
+Start Ollama before use:
+    ollama serve
+    ollama pull llama3.2
 
 Prompt engineering techniques used:
   A. Canonical examples   — curated best representatives per category (data/canonical_examples.json)
@@ -14,11 +14,6 @@ Prompt engineering techniques used:
   C. Contrastive hints    — disambiguation notes for confusable category pairs
   D. Chain-of-thought     — step-by-step reasoning for very low confidence cases
   E. Self-consistency     — majority vote over N LLM runs for high-value transactions
-
-Supported LLM backends (install only what you need):
-  • "anthropic"  — pip install anthropic
-  • "openai"     — pip install openai
-  • "ollama"     — ollama running locally (no extra Python package needed)
 """
 
 from __future__ import annotations
@@ -28,6 +23,8 @@ import os
 import re
 from collections import Counter
 from typing import Dict, List, Optional
+
+import requests
 
 
 # ---------------------------------------------------------------------------
@@ -50,76 +47,41 @@ DISAMBIGUATION NOTES (read carefully before classifying):
 
 
 # ---------------------------------------------------------------------------
-# LLM backends
+# Ollama backend
 # ---------------------------------------------------------------------------
-class _AnthropicBackend:
-    def __init__(self, model: str = "claude-haiku-4-5-20251001", api_key: Optional[str] = None):
-        try:
-            import anthropic
-        except ImportError:
-            raise ImportError("pip install anthropic")
-        self.client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
-        self.model  = model
-
-    def generate(self, prompt: str, max_tokens: int = 64, temperature: float = 0.0) -> str:
-        msg = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text.strip()
-
-
-class _OpenAIBackend:
-    def __init__(self, model: str = "gpt-4o-mini", api_key: Optional[str] = None):
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("pip install openai")
-        self.client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
-        self.model  = model
-
-    def generate(self, prompt: str, max_tokens: int = 64, temperature: float = 0.0) -> str:
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            max_completion_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.choices[0].message.content.strip()
-
-
 class _OllamaBackend:
-    def __init__(self, model: str = "llama3.1:8b", base_url: str = "http://localhost:11434"):
-        try:
-            import requests
-            self._requests = requests
-        except ImportError:
-            raise ImportError("pip install requests")
+    """
+    Calls a locally running Ollama instance.
+
+    Start Ollama:
+        ollama serve
+        ollama pull llama3.2
+    """
+
+    def __init__(
+        self,
+        model: str = "llama3.2",
+        base_url: str = "http://localhost:11434",
+    ):
         self.model    = model
         self.base_url = base_url.rstrip("/")
 
-    def generate(self, prompt: str, max_tokens: int = 64, temperature: float = 0.0) -> str:
-        resp = self._requests.post(
+    def generate(self, prompt: str, max_tokens: int = 128, temperature: float = 0.0) -> str:
+        resp = requests.post(
             f"{self.base_url}/api/generate",
-            json={"model": self.model, "prompt": prompt, "stream": False,
-                  "options": {"temperature": temperature, "num_predict": max_tokens}},
-            timeout=60,
+            json={
+                "model":  self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            },
+            timeout=120,
         )
         resp.raise_for_status()
         return resp.json().get("response", "").strip()
-
-
-def _make_backend(provider: str, **kwargs):
-    providers = {
-        "anthropic": _AnthropicBackend,
-        "openai":    _OpenAIBackend,
-        "ollama":    _OllamaBackend,
-    }
-    if provider not in providers:
-        raise ValueError(f"Unknown LLM provider: {provider!r}.  Choose: {list(providers)}")
-    return providers[provider](**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +89,12 @@ def _make_backend(provider: str, **kwargs):
 # ---------------------------------------------------------------------------
 class LLMClassifier:
     """
-    Hybrid LLM classifier.  Wraps an existing TransactionInferencePipeline and
-    steps in when the k-NN vote has low confidence or the transaction is OOD.
+    Hybrid LLM classifier using a local Ollama model (llama3.2 by default).
+    Steps in when the k-NN vote has low confidence or the transaction is OOD.
+
+    Requires Ollama running locally:
+        ollama serve
+        ollama pull llama3.2
 
     Typical usage
     -------------
@@ -136,9 +102,6 @@ class LLMClassifier:
     llm_clf  = LLMClassifier(
         pipeline,
         categories=list_of_43_category_strings,
-        provider="anthropic",          # or "openai" / "ollama"
-        canonical_examples_path="data/canonical_examples.json",
-        ood_examples_path="data/ood_examples.json",
     )
 
     result = pipeline.predict(txn)
@@ -148,16 +111,16 @@ class LLMClassifier:
 
     def __init__(
         self,
-        pipeline,                                    # TransactionInferencePipeline
-        categories: List[str],                       # all 43 target category strings
-        provider: str = "anthropic",
+        pipeline,                                        # TransactionInferencePipeline
+        categories: List[str],                           # all 43 target category strings
+        model: str = "llama3.2",                         # Ollama model tag
+        base_url: str = "http://localhost:11434",        # Ollama server URL
         canonical_examples_path: Optional[str] = "data/canonical_examples.json",
         ood_examples_path: Optional[str] = "data/ood_examples.json",
         confidence_threshold: float = 0.75,
-        high_value_threshold: float = 50_000,       # ₹ amount above which self-consistency fires
-        self_consistency_n: int = 3,                 # number of LLM runs for self-consistency
-        cot_confidence_threshold: float = 0.4,       # below this → add chain-of-thought
-        **backend_kwargs,
+        high_value_threshold: float = 50_000,            # ₹ — self-consistency fires above this
+        self_consistency_n: int = 3,                     # LLM runs for self-consistency vote
+        cot_confidence_threshold: float = 0.4,           # chain-of-thought below this confidence
     ):
         self.pipeline             = pipeline
         self.categories           = sorted(categories)
@@ -165,7 +128,7 @@ class LLMClassifier:
         self.high_value_threshold = high_value_threshold
         self.self_consistency_n   = self_consistency_n
         self.cot_threshold        = cot_confidence_threshold
-        self.llm                  = _make_backend(provider, **backend_kwargs)
+        self.llm                  = _OllamaBackend(model=model, base_url=base_url)
 
         # Load canonical examples {category: [list of example dicts]}
         self.canonical: dict = {}
@@ -179,6 +142,8 @@ class LLMClassifier:
             with open(ood_examples_path) as f:
                 self.ood_examples = json.load(f)
 
+        print(f"LLMClassifier ready | model={self.llm.model} | url={self.llm.base_url}")
+
     # ------------------------------------------------------------------
     def classify(
         self,
@@ -190,9 +155,9 @@ class LLMClassifier:
 
         Args:
             txn:              Transaction dict with tran_partclr, tran_amt_in_ac,
-                              dr_cr_indctor, tran_type/tran_mode.
+                              dr_cr_indctor, tran_mode.
             retrieval_result: Output of TransactionInferencePipeline.predict().
-                              If None, will call the pipeline internally.
+                              If None, calls the pipeline internally.
 
         Returns:
             Updated result dict with 'predicted_category' from the LLM.
@@ -200,17 +165,19 @@ class LLMClassifier:
         if retrieval_result is None:
             retrieval_result = self.pipeline.predict(txn, return_embeddings=False)
 
-        confidence  = retrieval_result.get('confidence', 0.0)
-        top_k_txns  = retrieval_result.get('similar_transactions', [])
-        top_cat     = retrieval_result.get('predicted_category', '')
-        amount      = float(txn.get('tran_amt_in_ac', 0))
+        confidence = retrieval_result.get('confidence', 0.0)
+        top_k_txns = retrieval_result.get('similar_transactions', [])
+        top_cat    = retrieval_result.get('predicted_category', '')
+        amount     = float(txn.get('tran_amt_in_ac', 0))
 
         use_cot = confidence < self.cot_threshold
         n_runs  = self.self_consistency_n if amount > self.high_value_threshold else 1
 
         prompt    = self._build_prompt(txn, top_k_txns, top_cat, use_cot)
-        raw_preds = [self.llm.generate(prompt, temperature=0.0 if n_runs == 1 else 0.3)
-                     for _ in range(n_runs)]
+        raw_preds = [
+            self.llm.generate(prompt, temperature=0.0 if n_runs == 1 else 0.3)
+            for _ in range(n_runs)
+        ]
 
         if n_runs > 1:
             parsed    = [self._parse_response(r) for r in raw_preds]
@@ -235,31 +202,30 @@ class LLMClassifier:
     ) -> str:
         cats_str = ", ".join(self.categories)
 
-        # --- Section A: canonical examples for the top candidate category ---
+        # Section A: canonical examples for the top candidate category
         canon_shots = ""
         if top_candidate and top_candidate in self.canonical:
-            shots = self.canonical[top_candidate][:2]
-            for ex in shots:
+            for ex in self.canonical[top_candidate][:2]:
                 canon_shots += self._fmt_example(ex, ex.get('category', top_candidate))
 
-        # --- Section B: top k-NN retrieved examples ---
+        # Section B: top k-NN retrieved examples
         retrieval_shots = ""
         for sim in retrieved[:4]:
             t = sim['transaction']
             ex = {
-                'tran_partclr':    t.get('description', ''),
-                'tran_amt_in_ac':  t.get('amount', 0),
-                'dr_cr_indctor':   t.get('dr_cr', ''),
-                'tran_type':       t.get('mode', ''),
+                'tran_partclr':   t.get('description', ''),
+                'tran_amt_in_ac': t.get('amount', 0),
+                'dr_cr_indctor':  t.get('dr_cr', ''),
+                'tran_mode':      t.get('mode', ''),
             }
             retrieval_shots += self._fmt_example(ex, sim.get('label', ''))
 
-        # --- Section C: real "other" examples (teach OOD boundary) ---
+        # Section C: real "other" examples (teaches OOD boundary)
         ood_shots = ""
         for ex in self.ood_examples[:2]:
             ood_shots += self._fmt_example(ex, 'other')
 
-        # --- Sections D / E: CoT or direct answer ---
+        # Section D / E: CoT or direct answer instruction
         if use_cot:
             answer_instruction = (
                 "Think step by step:\n"
@@ -270,9 +236,9 @@ class LLMClassifier:
                 "State your reasoning briefly, then on the LAST line write ONLY the category name."
             )
         else:
-            answer_instruction = "Output ONLY the category name on a single line."
+            answer_instruction = "Output ONLY the category name on a single line. No explanation."
 
-        prompt = f"""You are a banking transaction classifier for Indian retail banking.
+        return f"""You are a banking transaction classifier for Indian retail banking.
 
 Classify the transaction into EXACTLY ONE category from the list, or output "other" if none fits.
 
@@ -286,10 +252,9 @@ NEW TRANSACTION TO CLASSIFY:
 Description : {txn.get('tran_partclr', '')}
 Amount      : ₹{float(txn.get('tran_amt_in_ac', 0)):.2f}
 Direction   : {'Debit' if txn.get('dr_cr_indctor') == 'D' else 'Credit'}
-Mode        : {txn.get('tran_type', txn.get('tran_mode', 'N/A'))}
+Mode        : {txn.get('tran_mode', 'N/A')}
 
 {answer_instruction}"""
-        return prompt
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -299,7 +264,7 @@ Mode        : {txn.get('tran_type', txn.get('tran_mode', 'N/A'))}
             f"  Description : {txn.get('tran_partclr', '')}\n"
             f"  Amount      : ₹{float(txn.get('tran_amt_in_ac', 0)):.2f} | "
             f"Direction: {direction} | "
-            f"Mode: {txn.get('tran_type', txn.get('tran_mode', 'N/A'))}\n"
+            f"Mode: {txn.get('tran_mode', 'N/A')}\n"
             f"  → Category  : {label}\n\n"
         )
 
@@ -309,9 +274,8 @@ Mode        : {txn.get('tran_type', txn.get('tran_mode', 'N/A'))}
         Extract a valid category name from the raw LLM response.
         Handles CoT output (take last non-empty line) and fuzzy matching.
         """
-        # Take the last non-empty line (handles CoT reasoning above the answer)
-        lines      = [l.strip() for l in response.strip().splitlines() if l.strip()]
-        last_line  = lines[-1] if lines else response.strip()
+        lines     = [l.strip() for l in response.strip().splitlines() if l.strip()]
+        last_line = lines[-1] if lines else response.strip()
 
         # Remove common artefacts: quotes, punctuation, "Category:" prefixes
         cleaned = re.sub(r'^(category\s*[:\-]?\s*)', '', last_line, flags=re.IGNORECASE)
@@ -323,10 +287,9 @@ Mode        : {txn.get('tran_type', txn.get('tran_mode', 'N/A'))}
         if cleaned.lower() in lower_map:
             return lower_map[cleaned.lower()]
 
-        # Partial match — return first category that is a substring
+        # Partial match — first category that is a substring of the response
         for cat in self.categories:
             if cat.lower() in cleaned.lower() or cleaned.lower() in cat.lower():
                 return cat
 
-        # Fallback
         return 'other'

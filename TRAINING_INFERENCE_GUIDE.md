@@ -31,18 +31,90 @@ Training CSV (35K labeled, 43 categories)
 
 ## 0. Install Dependencies
 
-```bash
-# CPU only
-pip install torch transformers faiss-cpu scikit-learn pandas tqdm pyyaml
+### Full package list (by source file)
 
-# GPU (recommended for training and bulk inference)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-pip install faiss-gpu           # enables FAISS GPU index for IVF/Flat index types
-pip install transformers scikit-learn pandas tqdm pyyaml
+| Package | pip name | Used by | Required? |
+|---|---|---|---|
+| PyTorch | `torch` | All model files | ✅ Core |
+| HuggingFace Transformers | `transformers` | `fusion_encoder`, `data_loader`, `inference_pipeline` | ✅ Core |
+| FAISS (CPU) | `faiss-cpu` | `inference_pipeline` | ✅ Core |
+| FAISS (GPU) | `faiss-gpu` | `inference_pipeline` (`--gpu-index`) | ⚡ GPU only |
+| NumPy | `numpy` | All numerical files | ✅ Core |
+| Pandas | `pandas` | `data_loader`, `inference_pipeline`, `train_multi_expt` | ✅ Core |
+| scikit-learn | `scikit-learn` | `data_loader` (StandardScaler), `validation` (F1, AUROC), `plotting` (t-SNE) | ✅ Core |
+| tqdm | `tqdm` | `train_multi_expt` (progress bar) | ✅ Core |
+| PyYAML | `pyyaml` | `train_multi_expt` (config loading) | ✅ Core |
+| Matplotlib | `matplotlib` | `plotting` (loss curves, grad norms) | ✅ Core |
+| Requests | `requests` | `llm_classifier` (Ollama HTTP calls) | 🔌 LLM optional |
+| Ollama | (desktop app) | `llm_classifier` — local llama3.2 inference | 🔌 LLM optional |
+
+### Install commands
+
+#### CPU only (no GPU)
+```bash
+pip install torch transformers faiss-cpu scikit-learn pandas numpy tqdm pyyaml matplotlib requests
 ```
 
-> **Note on faiss-gpu:** HNSW index (the default) cannot run on GPU — faiss-gpu only supports
-> Flat and IVF index types. BERT encoding always runs on GPU regardless of index type.
+#### GPU — CUDA 11.8
+```bash
+# PyTorch with CUDA 11.8
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# FAISS GPU (IVF/Flat index on GPU — HNSW stays on CPU regardless)
+pip install faiss-gpu
+
+# Everything else
+pip install transformers scikit-learn pandas numpy tqdm pyyaml matplotlib requests
+```
+
+#### GPU — CUDA 12.1
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install faiss-gpu
+pip install transformers scikit-learn pandas numpy tqdm pyyaml matplotlib requests
+```
+
+#### GPU — CUDA 12.4+ / PyTorch 2.4+
+```bash
+pip install torch
+pip install faiss-gpu-cu12          # CUDA 12.x build of faiss-gpu
+pip install transformers scikit-learn pandas numpy tqdm pyyaml matplotlib requests
+```
+
+#### LLM fallback — Ollama (local, no API key needed)
+```bash
+# 1. Install Ollama desktop app: https://ollama.com/download
+# 2. Pull the model
+ollama pull llama3.2
+
+# 3. Start the server (keep this running in a terminal)
+ollama serve
+
+# 4. Install the requests package (used by llm_classifier.py to call Ollama)
+pip install requests
+```
+
+### requirements.txt
+
+```
+# Core — required for training and inference
+torch>=2.0.0
+transformers>=4.35.0
+faiss-cpu>=1.7.4        # replace with faiss-gpu for GPU FAISS index support
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+tqdm>=4.65.0
+pyyaml>=6.0
+matplotlib>=3.7.0
+
+# LLM fallback — required only when using --use-llm
+requests>=2.28.0        # HTTP calls to local Ollama server
+```
+
+> **Note on faiss-gpu:** `faiss-gpu` only accelerates **IVF and Flat** index types.
+> The default **HNSW** index cannot run on GPU — it always uses CPU search.
+> BERT encoding runs on GPU regardless of which FAISS variant you install.
 
 ---
 
@@ -252,8 +324,7 @@ python run_inference.py \
   --input-csv  data/new_transactions.csv \
   --output-csv results.csv \
   --use-llm \
-  --llm-backend ollama \
-  --llm-model   llama3.1:8b
+  --llm-model  llama3.2
 ```
 
 #### With GPU FAISS search (IVF index only):
