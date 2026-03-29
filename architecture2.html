@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technical Architecture - Agentic Financial Analysis System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fdfdfd;
+            padding: 40px 20px;
+            color: #333;
+        }
+        .canvas {
+            position: relative;
+            width: 1300px;
+            margin: 0 auto;
+            min-height: 1900px;
+        }
+        .title {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .title h1 {
+            font-size: 22px;
+            color: #2c3e50;
+            font-weight: 700;
+        }
+        .title .subtitle {
+            font-size: 13px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* ---- query bar ---- */
+        .query-bar {
+            text-align: center;
+            margin: 25px 0 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            color: #c0392b;
+            font-weight: 700;
+        }
+
+        /* ---- generic box ---- */
+        .box {
+            position: absolute;
+            border-radius: 10px;
+            padding: 14px 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+            z-index: 2;
+        }
+        .box .box-title {
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .box .box-desc {
+            font-size: 11.5px;
+            color: #444;
+            line-height: 1.45;
+        }
+
+        /* color themes */
+        .blue    { background: #d6eaf8; border: 2px solid #85c1e9; }
+        .red     { background: #fadbd8; border: 2px solid #f1948a; }
+        .green   { background: #d5f5e3; border: 2px solid #82e0aa; }
+        .yellow  { background: #fef9e7; border: 2px solid #f9e79f; }
+        .orange  { background: #fdebd0; border: 2px solid #f0b27a; }
+        .purple  { background: #e8daef; border: 2px solid #bb8fce; }
+        .dark    { background: #2c3e50; border: 2px solid #1a252f; color: #fff; }
+        .dark .box-desc { color: #ccc; }
+        .gray    { background: #eaecee; border: 2px solid #aab7b8; }
+
+        /* model tag */
+        .model-tag {
+            position: absolute;
+            background: #f1c40f;
+            color: #333;
+            font-weight: 800;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 6px;
+            z-index: 3;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            white-space: nowrap;
+        }
+
+        /* data store */
+        .data-store {
+            position: absolute;
+            z-index: 2;
+            text-align: center;
+        }
+        .data-store .disks {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .data-store .disk {
+            width: 70px;
+            height: 14px;
+            border-radius: 50%;
+            margin-top: -4px;
+        }
+        .disk-green { background: #27ae60; border: 1px solid #1e8449; }
+        .disk-red   { background: #e74c3c; border: 1px solid #c0392b; }
+        .disk-blue  { background: #3498db; border: 1px solid #2980b9; }
+        .data-store .ds-label {
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 6px;
+            color: #555;
+        }
+        .data-store .ds-detail {
+            font-size: 10px;
+            color: #888;
+            max-width: 120px;
+        }
+
+        /* arrows via SVG */
+        svg.arrows {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .arrow-line {
+            stroke: #7f8c8d;
+            stroke-width: 2;
+            fill: none;
+        }
+        .arrow-dash {
+            stroke: #7f8c8d;
+            stroke-width: 2;
+            stroke-dasharray: 8 4;
+            fill: none;
+        }
+        .arrow-head {
+            fill: #7f8c8d;
+        }
+        .arrow-label {
+            font-size: 11px;
+            fill: #c0392b;
+            font-style: italic;
+            font-weight: 600;
+        }
+
+        /* legend */
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            display: flex;
+            gap: 18px;
+            font-size: 11px;
+            color: #666;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+
+        /* tools list */
+        .tools-list {
+            position: absolute;
+            z-index: 2;
+        }
+        .tools-list .tl-title {
+            font-weight: 700;
+            font-size: 13px;
+            color: #2c3e50;
+            margin-bottom: 6px;
+        }
+        .tools-list ul {
+            list-style: none;
+            font-size: 10.5px;
+            color: #555;
+            line-height: 1.6;
+        }
+        .tools-list ul li::before {
+            content: ">";
+            color: #27ae60;
+            font-weight: 700;
+            margin-right: 4px;
+        }
+
+        /* section divider labels */
+        .section-label {
+            position: absolute;
+            font-size: 11px;
+            font-weight: 700;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+
+<div class="canvas">
+
+    <div class="title">
+        <h1>Agentic Financial Analysis System - Technical Architecture</h1>
+        <div class="subtitle">LangChain + Ollama | 5-Stage Pipeline | Banking + Bureau Data</div>
+    </div>
+
+    <div class="query-bar">Query by user : "Generate banking / bureau / combined report for customer X"</div>
+
+    <!-- ============================================================ -->
+    <!--  SVG ARROWS                                                   -->
+    <!-- ============================================================ -->
+    <svg class="arrows" viewBox="0 0 1300 1900">
+        <defs>
+            <marker id="ah" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" class="arrow-head"/>
+            </marker>
+            <marker id="ah2" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b"/>
+            </marker>
+        </defs>
+
+        <!-- Query → Intent Parser -->
+        <line x1="500" y1="115" x2="500" y2="145" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Intent Parser → Planner -->
+        <line x1="500" y1="230" x2="500" y2="310" class="arrow-line" marker-end="url(#ah)"/>
+        <text x="510" y="275" class="arrow-label">ParsedIntent</text>
+
+        <!-- Planner → Executor -->
+        <line x1="390" y1="415" x2="220" y2="520" class="arrow-line" marker-end="url(#ah)"/>
+        <text x="230" y="465" class="arrow-label">execution plan</text>
+
+        <!-- Planner → Report Orchestrators -->
+        <line x1="610" y1="415" x2="760" y2="520" class="arrow-line" marker-end="url(#ah)"/>
+        <text x="640" y="465" class="arrow-label">report intents</text>
+
+        <!-- Tools stack → Planner -->
+        <line x1="100" y1="310" x2="390" y2="350" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="150" y="310" class="arrow-label">tool registry</text>
+
+        <!-- Tools stack → Executor -->
+        <line x1="100" y1="380" x2="140" y2="540" class="arrow-dash" marker-end="url(#ah)"/>
+
+        <!-- Executor → Explainer -->
+        <line x1="220" y1="640" x2="500" y2="1580" class="arrow-line" marker-end="url(#ah)"/>
+        <text x="290" y="1100" class="arrow-label" transform="rotate(75 290 1100)">tool results (JSON)</text>
+
+        <!-- Report Orchestrators → Customer Report Gen -->
+        <line x1="700" y1="635" x2="500" y2="730" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Report Orchestrators → Bureau Report Gen -->
+        <line x1="860" y1="635" x2="860" y2="730" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Report Orchestrators → Combined Report Gen -->
+        <line x1="960" y1="635" x2="1100" y2="730" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Customer Report → LLM Narratives -->
+        <line x1="500" y1="860" x2="500" y2="920" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Bureau Report → Bureau Feature Pipeline -->
+        <line x1="860" y1="860" x2="860" y2="920" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Combined Report → Both reports -->
+        <line x1="1060" y1="860" x2="560" y2="795" class="arrow-dash" marker-end="url(#ah)"/>
+        <line x1="1060" y1="860" x2="920" y2="795" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="1010" y="875" class="arrow-label">reuses</text>
+
+        <!-- Customer LLM → PDF render -->
+        <line x1="500" y1="1060" x2="500" y2="1130" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Bureau Feature → Key Findings -->
+        <line x1="860" y1="1060" x2="860" y2="1130" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Bureau Key Findings → Bureau LLM Narrative -->
+        <line x1="860" y1="1240" x2="860" y2="1310" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Bureau LLM → PDF render -->
+        <line x1="860" y1="1420" x2="860" y2="1470" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Combined → Combined LLM Summary -->
+        <line x1="1100" y1="860" x2="1100" y2="1310" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- Combined LLM → PDF render -->
+        <line x1="1100" y1="1420" x2="1100" y2="1470" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- PDF renders → Explainer -->
+        <line x1="500" y1="1240" x2="580" y2="1580" class="arrow-dash" marker-end="url(#ah)"/>
+        <line x1="860" y1="1560" x2="700" y2="1600" class="arrow-dash" marker-end="url(#ah)"/>
+        <line x1="1100" y1="1560" x2="720" y2="1600" class="arrow-dash" marker-end="url(#ah)"/>
+
+        <!-- Cache Store connections -->
+        <line x1="1230" y1="420" x2="1230" y2="770" class="arrow-dash"/>
+        <line x1="1230" y1="770" x2="1160" y2="770" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="1235" y="600" class="arrow-label" transform="rotate(90 1235 600)">reloads as required</text>
+
+        <line x1="560" y1="800" x2="1200" y2="420" class="arrow-dash"/>
+        <text x="880" y="560" class="arrow-label" transform="rotate(-20 880 560)">stores customer insights</text>
+
+        <!-- Data sources → Feature extraction -->
+        <line x1="100" y1="950" x2="390" y2="790" class="arrow-dash" marker-end="url(#ah)"/>
+        <line x1="100" y1="1060" x2="780" y2="960" class="arrow-dash" marker-end="url(#ah)"/>
+        <line x1="100" y1="1160" x2="780" y2="1000" class="arrow-dash" marker-end="url(#ah)"/>
+
+        <!-- Explainer → Output -->
+        <line x1="650" y1="1680" x2="650" y2="1740" class="arrow-line" marker-end="url(#ah)"/>
+    </svg>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 1: INTENT PARSER                                       -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:20px; top:140px;">STAGE 1</div>
+    <div class="box blue" style="left:380px; top:145px; width:240px;">
+        <div class="box-title">Intent Parser</div>
+        <div class="box-desc">Parses user query into structured intent<br>(intent type, customer_id, category, dates)</div>
+    </div>
+    <div class="model-tag" style="left:640px; top:150px;">mistral</div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 2: PLANNER                                             -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:20px; top:310px;">STAGE 2</div>
+    <div class="box blue" style="left:370px; top:310px; width:260px;">
+        <div class="box-title">Query Planner</div>
+        <div class="box-desc">
+            Validates customer &amp; fields against data sources.<br>
+            Maps intent to tool(s) via INTENT_TOOL_MAP.<br>
+            Builds execution plan [{tool, args}, ...]
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  TOOLS STACK                                                  -->
+    <!-- ============================================================ -->
+    <div class="data-store" style="left:40px; top:330px;">
+        <div class="disks">
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+        </div>
+        <div class="ds-label">Tools (28)</div>
+    </div>
+    <div class="tools-list" style="left:20px; top:425px; width:140px;">
+        <ul>
+            <li>debit_total</li>
+            <li>get_total_income</li>
+            <li>spending_by_category</li>
+            <li>top_categories</li>
+            <li>spending_in_range</li>
+            <li>credit_statistics</li>
+            <li>debit_statistics</li>
+            <li>balance_trend</li>
+            <li>detect_anomalies</li>
+            <li>income_stability</li>
+            <li>cash_flow</li>
+            <li>lender_profile</li>
+            <li>bureau_cc_info</li>
+            <li>bureau_loan_info</li>
+            <li>bureau_delinquency</li>
+            <li>bureau_overview</li>
+            <li>category_lookup</li>
+            <li style="font-weight:700; color:#c0392b;">+ 3 report generators</li>
+        </ul>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 3: EXECUTOR                                            -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:20px; top:520px;">STAGE 3</div>
+    <div class="box red" style="left:130px; top:520px; width:220px;">
+        <div class="box-title">Tool Executor</div>
+        <div class="box-desc">
+            Takes the planned tools and executes them<br>
+            on the data. Returns structured JSON<br>
+            ToolResult per tool call.
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  REPORT ORCHESTRATORS                                         -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:660px; top:520px;">REPORT LAYER</div>
+    <div class="box orange" style="left:660px; top:540px; width:340px;">
+        <div class="box-title">Report Orchestrators</div>
+        <div class="box-desc">
+            Planner routes report intents here.<br>
+            Orchestrates data gathering, feature extraction,<br>
+            LLM narratives, and PDF/HTML rendering.
+        </div>
+    </div>
+
+    <!-- 3 report types -->
+    <div class="box green" style="left:380px; top:730px; width:220px;">
+        <div class="box-title">Customer Report</div>
+        <div class="box-desc">
+            Banking transactions analysis:<br>
+            salary, spending, cashflow,<br>
+            EMI, rent, bills, merchants
+        </div>
+    </div>
+
+    <div class="box green" style="left:740px; top:730px; width:220px;">
+        <div class="box-title">Bureau Report</div>
+        <div class="box-desc">
+            Credit bureau tradelines:<br>
+            portfolio, DPD, delinquency,<br>
+            utilization, loan velocity
+        </div>
+    </div>
+
+    <div class="box green" style="left:1000px; top:730px; width:200px;">
+        <div class="box-title">Combined Report</div>
+        <div class="box-desc">
+            Merges both reports into<br>
+            one unified document.<br>
+            Reuses cached reports.
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  CACHE STORE                                                  -->
+    <!-- ============================================================ -->
+    <div class="data-store" style="left:1200px; top:330px;">
+        <div class="disks">
+            <div class="disk disk-red"></div>
+            <div class="disk disk-red"></div>
+            <div class="disk disk-red"></div>
+            <div class="disk disk-red"></div>
+        </div>
+        <div class="ds-label">Cache Store</div>
+        <div class="ds-detail">_REPORT_CACHE<br>keyed by (cust_id, period)</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  DATA SOURCES                                                 -->
+    <!-- ============================================================ -->
+    <div class="data-store" style="left:30px; top:880px;">
+        <div class="disks">
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+        </div>
+        <div class="ds-label">rgs.csv</div>
+        <div class="ds-detail">Banking Transactions<br>(tab-separated)</div>
+    </div>
+
+    <div class="data-store" style="left:30px; top:990px;">
+        <div class="disks">
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+        </div>
+        <div class="ds-label">dpd_data.csv</div>
+        <div class="ds-detail">Bureau Tradelines<br>(DPD flags, amounts)</div>
+    </div>
+
+    <div class="data-store" style="left:30px; top:1100px;">
+        <div class="disks">
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+        </div>
+        <div class="ds-label">tl_features.csv</div>
+        <div class="ds-detail">Pre-computed<br>Behavioral Features</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  LLM NARRATIVE BLOCKS                                         -->
+    <!-- ============================================================ -->
+    <div class="box purple" style="left:380px; top:920px; width:240px;">
+        <div class="box-title">LLM Narratives (Banking)</div>
+        <div class="box-desc">
+            <b>customer_persona</b> : 4-5 line profile<br>
+            <b>customer_review</b> : 3-4 line exec summary
+        </div>
+    </div>
+    <div class="model-tag" style="left:630px; top:925px;">llama3.2 &nbsp;t=0, seed=42</div>
+
+    <div class="box purple" style="left:730px; top:920px; width:260px;">
+        <div class="box-title">Bureau Feature Pipeline</div>
+        <div class="box-desc">
+            Feature Extraction (per loan type)<br>
+            Feature Aggregation (portfolio level)<br>
+            Tradeline Behavioral Features
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  PDF RENDER CUSTOMER                                          -->
+    <!-- ============================================================ -->
+    <div class="box gray" style="left:380px; top:1130px; width:240px;">
+        <div class="box-title">PDF + HTML Renderer</div>
+        <div class="box-desc">
+            ReportPDF (fpdf2) + Jinja2<br>
+            customer_report.pdf / .html
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  KEY FINDINGS                                                 -->
+    <!-- ============================================================ -->
+    <div class="box yellow" style="left:740px; top:1130px; width:240px;">
+        <div class="box-title">Key Findings Engine</div>
+        <div class="box-desc">
+            40+ deterministic findings<br>
+            Severity: high_risk, moderate_risk,<br>
+            concern, neutral, positive
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  BUREAU LLM NARRATIVE                                         -->
+    <!-- ============================================================ -->
+    <div class="box purple" style="left:740px; top:1310px; width:240px;">
+        <div class="box-title">Bureau LLM Narrative</div>
+        <div class="box-desc">
+            <b>bureau_review</b> : 2-paragraph<br>
+            Portfolio Overview + Behavioral Insights<br>
+            with risk tags [HIGH RISK], [POSITIVE]
+        </div>
+    </div>
+    <div class="model-tag" style="left:990px; top:1315px;">llama3.2 &nbsp;t=0</div>
+
+    <!-- ============================================================ -->
+    <!--  COMBINED LLM NARRATIVE                                       -->
+    <!-- ============================================================ -->
+    <div class="box purple" style="left:1020px; top:1310px; width:200px;">
+        <div class="box-title">Combined LLM Summary</div>
+        <div class="box-desc">
+            Synthesises banking + bureau<br>
+            into 6-8 line holistic<br>
+            creditworthiness assessment
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  PDF RENDERS                                                  -->
+    <!-- ============================================================ -->
+    <div class="box gray" style="left:740px; top:1470px; width:240px;">
+        <div class="box-title">Bureau PDF + HTML</div>
+        <div class="box-desc">
+            BureauReportPDF + Jinja2<br>
+            bureau_report.pdf / .html
+        </div>
+    </div>
+
+    <div class="box gray" style="left:1020px; top:1470px; width:200px;">
+        <div class="box-title">Combined PDF + HTML</div>
+        <div class="box-desc">
+            CombinedReportPDF + Jinja2<br>
+            combined_report.pdf / .html
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 4: EXPLAINER                                           -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:20px; top:1580px;">STAGE 4</div>
+    <div class="box dark" style="left:400px; top:1580px; width:500px;">
+        <div class="box-title" style="color:#f1c40f;">Explainer</div>
+        <div class="box-desc">
+            Takes tool call results + report paths + user query.<br>
+            Generates natural language response with insights and summary.<br>
+            Supports streaming output for real-time display.
+        </div>
+    </div>
+    <div class="model-tag" style="left:920px; top:1585px;">llama3.2</div>
+
+    <!-- ============================================================ -->
+    <!--  OUTPUT                                                       -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:20px; top:1750px;">OUTPUT</div>
+    <div class="box yellow" style="left:430px; top:1750px; width:440px;">
+        <div class="box-title">Streamlit UI</div>
+        <div class="box-desc">
+            Natural language response + PDF download links + HTML preview<br>
+            Pipeline stage indicators | Chat history | Report viewer
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  LEGEND                                                       -->
+    <!-- ============================================================ -->
+    <div class="legend" style="bottom: 10px;">
+        <div class="legend-item"><div class="legend-dot" style="background:#d6eaf8; border:1px solid #85c1e9;"></div> Pipeline Stage</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fadbd8; border:1px solid #f1948a;"></div> Executor</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d5f5e3; border:1px solid #82e0aa;"></div> Report Generator</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e8daef; border:1px solid #bb8fce;"></div> LLM Narrative</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fef9e7; border:1px solid #f9e79f;"></div> Engine / UI</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#eaecee; border:1px solid #aab7b8;"></div> Renderer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2c3e50; border:1px solid #1a252f;"></div> Explainer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f1c40f; border:1px solid #d4ac0d;"></div> LLM Model</div>
+    </div>
+
+</div>
+
+</body>
+</html>

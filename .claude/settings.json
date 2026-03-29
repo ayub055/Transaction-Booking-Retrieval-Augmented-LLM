@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import pptx; print\\(pptx.__version__\\)\")",
+      "Bash(pip install:*)",
+      "Bash(open /Users/ayyoob/Desktop/Projects/Transaction_Tagger/Transaction_Tagger_Presentation.pptx)",
+      "Bash(python create_presentation.py)",
+      "Bash(python -c \"import playwright\")",
+      "Bash(python -c \"import cairosvg\")",
+      "Bash(python -c \"from PIL import Image\")",
+      "Bash(python -c \"import imgkit\")",
+      "Bash(python -c \"from PIL import Image; import PIL; print\\(PIL.__version__\\)\")",
+      "Read(//Applications/**)",
+      "Bash(open /Users/ayyoob/Desktop/Projects/Transaction_Tagger/arch_diagram.png)",
+      "Bash(open /Users/ayyoob/Desktop/Projects/Transaction_Tagger/architecture.html)",
+      "Bash(open /Users/ayyoob/Desktop/Projects/Transaction_Tagger/architecture_csuite.html)",
+      "Bash(pdftoppm -r 200 -png -f 3 -l 3 \"/Users/ayyoob/Desktop/Projects/Transaction_Tagger/cash-transaction-booking-via-retrieval-augmented-llm-2.pdf\" /tmp/paper_page)",
+      "Read(//private/tmp/**)",
+      "Read(//tmp/**)",
+      "Bash(open /Users/ayyoob/Desktop/Projects/Transaction_Tagger/figure3_inference_architecture.html)"
+    ]
+  }
+}

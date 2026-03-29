@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technical Architecture — Transaction Tagger</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fdfdfd;
+            padding: 30px 20px 60px;
+            color: #333;
+        }
+        .canvas {
+            position: relative;
+            width: 1300px;
+            margin: 0 auto;
+            min-height: 1660px;
+        }
+
+        /* ── page title ── */
+        .title { text-align: center; margin-bottom: 6px; }
+        .title h1 { font-size: 21px; color: #2c3e50; font-weight: 700; }
+        .title .subtitle { font-size: 12px; color: #888; margin-top: 3px; }
+
+        /* ── phase headers ── */
+        .phase-header {
+            position: absolute;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px 10px 0 0;
+            z-index: 3;
+            font-weight: 800;
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .phase-train {
+            background: #154360;
+            color: #aed6f1;
+            border-bottom: 3px solid #1a5276;
+        }
+        .phase-infer {
+            background: #145a32;
+            color: #a9dfbf;
+            border-bottom: 3px solid #1e8449;
+        }
+        /* phase column backgrounds */
+        .phase-bg {
+            position: absolute;
+            border-radius: 12px;
+            z-index: 0;
+        }
+        .phase-bg-train {
+            background: #eaf4fb;
+            border: 2px solid #aed6f1;
+        }
+        .phase-bg-infer {
+            background: #eafaf1;
+            border: 2px solid #a9dfbf;
+        }
+
+        /* ── generic box ── */
+        .box {
+            position: absolute;
+            border-radius: 10px;
+            padding: 12px 15px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.09);
+            z-index: 2;
+        }
+        .box .box-title { font-weight: 700; font-size: 13px; margin-bottom: 5px; }
+        .box .box-desc  { font-size: 10.5px; color: #444; line-height: 1.5; }
+
+        /* colour themes */
+        .blue   { background: #d6eaf8; border: 2px solid #85c1e9; }
+        .green  { background: #d5f5e3; border: 2px solid #82e0aa; }
+        .purple { background: #e8daef; border: 2px solid #bb8fce; }
+        .yellow { background: #fef9e7; border: 2px solid #f9e79f; }
+        .orange { background: #fdebd0; border: 2px solid #f0b27a; }
+        .red    { background: #fadbd8; border: 2px solid #f1948a; }
+        .gray   { background: #eaecee; border: 2px solid #aab7b8; }
+        .teal   { background: #d1f2eb; border: 2px solid #76d7c4; }
+        .dark   { background: #1c2833; border: 2px solid #0e1a26; color: #fff; }
+        .dark .box-desc { color: #ccc; }
+
+        /* ── proprietary model wrapper ── */
+        .prop-wrapper {
+            position: absolute;
+            border: 3px dashed #d4ac0d;
+            border-radius: 14px;
+            background: rgba(241, 196, 15, 0.07);
+            z-index: 2;
+        }
+        .prop-label {
+            position: absolute;
+            background: #f1c40f;
+            color: #2c2c0a;
+            font-weight: 900;
+            font-size: 10.5px;
+            padding: 4px 13px;
+            border-radius: 20px;
+            z-index: 5;
+            letter-spacing: 0.6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+            white-space: nowrap;
+        }
+
+        /* ── model tag ── */
+        .model-tag {
+            position: absolute;
+            background: #f1c40f;
+            color: #333;
+            font-weight: 800;
+            font-size: 10.5px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            z-index: 4;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            white-space: nowrap;
+        }
+        .mt-blue  { background: #1a5276; color: #fff; }
+        .mt-green { background: #1e8449; color: #fff; }
+
+        /* ── data store ── */
+        .data-store { position: absolute; z-index: 2; text-align: center; }
+        .data-store .disks { display: flex; flex-direction: column; align-items: center; }
+        .data-store .disk  { width: 70px; height: 13px; border-radius: 50%; margin-top: -4px; }
+        .disk-blue   { background: #3498db; border: 1px solid #2980b9; }
+        .disk-green  { background: #27ae60; border: 1px solid #1e8449; }
+        .disk-orange { background: #e67e22; border: 1px solid #ca6f1e; }
+        .disk-gray   { background: #95a5a6; border: 1px solid #7f8c8d; }
+        .disk-gold   { background: #d4ac0d; border: 1px solid #b7950b; }
+        .data-store .ds-label  { font-size: 11.5px; font-weight: 700; margin-top: 6px; color: #444; }
+        .data-store .ds-detail { font-size: 9.5px; color: #888; max-width: 110px; line-height: 1.4; margin-top: 2px; }
+
+        /* ── section label ── */
+        .section-label {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 700;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            z-index: 3;
+        }
+
+        /* ── confidence badge ── */
+        .conf-badge {
+            position: absolute;
+            font-size: 9.5px;
+            font-weight: 800;
+            padding: 3px 9px;
+            border-radius: 20px;
+            z-index: 4;
+        }
+        .badge-green  { background: #1e8449; color: #fff; }
+        .badge-orange { background: #ca6f1e; color: #fff; }
+
+        /* ── arrows ── */
+        svg.arrows {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1; pointer-events: none;
+        }
+        .al  { stroke: #7f8c8d; stroke-width: 2; fill: none; }
+        .ab  { stroke: #2471a3; stroke-width: 2; fill: none; }
+        .ag  { stroke: #1e8449; stroke-width: 2; fill: none; }
+        .ao  { stroke: #ca6f1e; stroke-width: 2; fill: none; }
+        .ad  { stroke: #aab7b8; stroke-width: 1.8; stroke-dasharray: 7 4; fill: none; }
+        .ad-gold { stroke: #d4ac0d; stroke-width: 2; stroke-dasharray: 7 4; fill: none; }
+        .ah  { fill: #7f8c8d; }
+        .ahb { fill: #2471a3; }
+        .ahg { fill: #1e8449; }
+        .aho { fill: #ca6f1e; }
+        .albl { font-size: 10px; fill: #c0392b; font-style: italic; font-weight: 600; }
+        .albl-g { font-size: 9.5px; fill: #888; font-style: italic; }
+
+        /* ── footer stats ── */
+        .stats-bar {
+            position: absolute;
+            background: #f0f4f8;
+            border: 1px solid #d0d8e4;
+            border-radius: 8px;
+            padding: 11px 20px;
+            font-size: 11.5px;
+            color: #555;
+            z-index: 2;
+            text-align: center;
+        }
+
+        /* ── legend ── */
+        .legend {
+            position: absolute;
+            display: flex; gap: 15px; flex-wrap: wrap;
+            font-size: 10.5px; color: #666;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-dot  { width: 13px; height: 13px; border-radius: 4px; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+<div class="canvas">
+
+    <div class="title">
+        <h1>Transaction Tagger — Technical Architecture</h1>
+        <div class="subtitle">Training Phase (Offline) &nbsp;·&nbsp; Inference Phase (Online) &nbsp;·&nbsp;
+            RAG + Embeddings + LLM Hybrid &nbsp;·&nbsp; 10M+ transactions / month</div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- PHASE COLUMN BACKGROUNDS                                          -->
+    <!-- ================================================================ -->
+    <div class="phase-bg phase-bg-train"  style="left:15px;   top:72px; width:570px; height:1300px;"></div>
+    <div class="phase-bg phase-bg-infer"  style="left:615px;  top:72px; width:670px; height:1300px;"></div>
+
+    <!-- Phase headers -->
+    <div class="phase-header phase-train" style="left:15px;  top:72px; width:570px;">
+        ⬛ &nbsp; TRAINING PHASE &nbsp;—&nbsp; Offline / One-time
+    </div>
+    <div class="phase-header phase-infer" style="left:615px; top:72px; width:670px;">
+        ▶ &nbsp; INFERENCE PHASE &nbsp;—&nbsp; Online / Real-time
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- SVG ARROWS                                                        -->
+    <!-- ================================================================ -->
+    <svg class="arrows" viewBox="0 0 1300 1660">
+        <defs>
+            <marker id="ah"  markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="ah"/></marker>
+            <marker id="ahb" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="ahb"/></marker>
+            <marker id="ahg" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="ahg"/></marker>
+            <marker id="aho" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="aho"/></marker>
+        </defs>
+
+        <!-- ══ TRAINING PHASE arrows ══════════════════════════════════ -->
+        <!-- Golden Records → SupCon Training -->
+        <line x1="300" y1="222" x2="300" y2="258" class="al" marker-end="url(#ah)"/>
+
+        <!-- SupCon Training → FusionEncoder -->
+        <line x1="300" y1="468" x2="300" y2="510" class="al" marker-end="url(#ah)"/>
+        <text x="308" y="493" class="albl-g">trained weights</text>
+
+        <!-- FusionEncoder → Index Build -->
+        <line x1="300" y1="608" x2="300" y2="652" class="al" marker-end="url(#ah)"/>
+        <text x="308" y="634" class="albl-g">encode 35K rows</text>
+
+        <!-- Index Build → OOD Calibration -->
+        <line x1="300" y1="772" x2="300" y2="816" class="al" marker-end="url(#ah)"/>
+
+        <!-- OOD Calibration → Artifacts -->
+        <line x1="300" y1="918" x2="300" y2="970" class="al" marker-end="url(#ah)"/>
+        <text x="308" y="948" class="albl-g">save threshold</text>
+
+        <!-- ══ INFERENCE PHASE arrows ════════════════════════════════ -->
+        <!-- Input → FusionEncoder (Proprietary wrapper) -->
+        <line x1="950" y1="220" x2="950" y2="280" class="ab" marker-end="url(#ahb)"/>
+
+        <!-- FusionEncoder → FAISS + Prototypes (split) -->
+        <path d="M 950 420 L 950 452 L 838 452 L 838 486" class="ag" marker-end="url(#ahg)"/>
+        <path d="M 950 420 L 950 452 L 1080 452 L 1080 486" class="ag" marker-end="url(#ahg)"/>
+        <text x="960" y="447" class="albl-g" style="fill:#1e8449;">256-dim vector</text>
+
+        <!-- FAISS + Prototypes → Blended Scoring -->
+        <path d="M 838 606 L 838 636 L 950 636 L 950 660" class="al" marker-end="url(#ah)"/>
+        <path d="M 1080 606 L 1080 636 L 950 636" class="al"/>
+
+        <!-- Blended Scoring → OOD Gate -->
+        <line x1="950" y1="752" x2="950" y2="800" class="al" marker-end="url(#ah)"/>
+        <text x="958" y="780" class="albl" style="fill:#555;">blended score</text>
+
+        <!-- OOD Gate → Direct Output -->
+        <path d="M 830 902 L 830 932 L 780 932 L 780 966" class="ag" marker-end="url(#ahg)"/>
+        <text x="644" y="925" class="albl" style="fill:#1e8449; font-size:9.5px;">≥ 0.75 conf</text>
+
+        <!-- OOD Gate → LLM Fallback -->
+        <path d="M 1070 902 L 1070 932 L 1120 932 L 1120 966" class="ao" marker-end="url(#aho)"/>
+        <text x="1085" y="925" class="albl" style="font-size:9.5px;">OOD / low conf</text>
+
+        <!-- Direct → Final Output -->
+        <path d="M 780 1086 L 780 1115 L 910 1115 L 910 1148" class="al" marker-end="url(#ah)"/>
+
+        <!-- LLM Fallback → Final Output -->
+        <path d="M 1120 1086 L 1120 1115 L 990 1115 L 990 1148" class="al" marker-end="url(#ah)"/>
+
+        <!-- Final Output → CSV -->
+        <line x1="950" y1="1250" x2="950" y2="1295" class="al" marker-end="url(#ah)"/>
+
+        <!-- ══ CROSS-PHASE: Artifacts → Proprietary Model ════════════ -->
+        <path d="M 450 1040 L 590 1040 L 590 350 L 640 350" class="ad-gold" marker-end="url(#ah)"/>
+        <text x="515" y="1033" class="albl-g" style="fill:#d4ac0d; font-weight:700;">loads at startup</text>
+    </svg>
+
+    <!-- ================================================================ -->
+    <!-- TRAINING PHASE — CONTENT                                          -->
+    <!-- ================================================================ -->
+
+    <!-- Golden Records data store -->
+    <div class="section-label" style="left:35px; top:132px;">Data</div>
+    <div class="data-store" style="left:215px; top:127px;">
+        <div class="disks">
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+        </div>
+        <div class="ds-label">Golden Records</div>
+        <div class="ds-detail">35,000 labeled rows<br>43 categories<br>250–5,000 / class</div>
+    </div>
+
+    <!-- SupCon Training -->
+    <div class="section-label" style="left:35px; top:265px;">Train</div>
+    <div class="box purple" style="left:95px; top:258px; width:400px; height:210px;">
+        <div class="box-title">Supervised Contrastive (SupCon) Training</div>
+        <div class="box-desc">
+            <b>SupCon loss</b> — uses ALL in-batch positives (vs. triplet's single pair)<br>
+            <b>Per-class temperature scaling</b> — minority classes get sharper gradients<br>
+            <b>Gradual BERT unfreezing</b> — top semantic layers fine-tuned first<br>
+            <b>Inverse-frequency class weighting</b> — sqrt dampening to prevent explosion<br>
+            <b>Semi-hard negative mining</b> — focuses on boundary-crossing negatives<br>
+            <b>Class-balanced batch sampling</b> — equal class representation per batch
+        </div>
+    </div>
+    <div class="model-tag mt-blue" style="left:388px; top:261px;">IndicBERT v2 fine-tune</div>
+
+    <!-- FusionEncoder Training -->
+    <div class="section-label" style="left:35px; top:517px;">Encoder</div>
+    <div class="box dark" style="left:95px; top:510px; width:400px; height:98px;">
+        <div class="box-title" style="color:#f1c40f;">FusionEncoder</div>
+        <div class="box-desc">
+            IndicBERT (768-dim) + Categorical Embedding (4-dim) + Numeric (1-dim)<br>
+            → MLP + LayerNorm → <b style="color:#f9e79f;">256-dim L2-normalised vector</b><br>
+            FP16 precision · Trained weights saved as <code style="color:#aed6f1;">fusion_encoder_best.pth</code>
+        </div>
+    </div>
+
+    <!-- FAISS Index Build -->
+    <div class="section-label" style="left:35px; top:658px;">Index</div>
+    <div class="box green" style="left:95px; top:652px; width:400px; height:120px;">
+        <div class="box-title">Stratified FAISS Index Build</div>
+        <div class="box-desc">
+            Encode all 35K golden records with trained FusionEncoder<br>
+            <b>Max 500 exemplars / class</b> — greedy farthest-point sampling<br>
+            Prevents majority classes drowning minority categories<br>
+            Build HNSW graph · compute per-class prototype centroids<br>
+            Save: <code>golden_records.faiss</code> + <code>_metadata.pkl</code>
+        </div>
+    </div>
+
+    <!-- OOD Calibration -->
+    <div class="section-label" style="left:35px; top:822px;">OOD</div>
+    <div class="box yellow" style="left:95px; top:816px; width:400px; height:102px;">
+        <div class="box-title">OOD Threshold Calibration</div>
+        <div class="box-desc">
+            Uses real <i>'other'</i> transactions (rgs.csv, 192 rows) → F1-optimise threshold<br>
+            Fallback: 95th percentile of within-corpus nearest-neighbour distances<br>
+            Threshold saved to <code>_metadata.pkl</code> · Used at inference to flag unknowns
+        </div>
+    </div>
+
+    <!-- Saved Artifacts data store -->
+    <div class="section-label" style="left:35px; top:982px;">Artifacts</div>
+    <div class="data-store" style="left:206px; top:970px;">
+        <div class="disks">
+            <div class="disk disk-gold"></div>
+            <div class="disk disk-gold"></div>
+            <div class="disk disk-gold"></div>
+        </div>
+        <div class="ds-label">Saved Artifacts</div>
+        <div class="ds-detail">
+            fusion_encoder_best.pth<br>
+            golden_records.faiss<br>
+            training_artifacts.pkl<br>
+            class_prototypes.npy
+        </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- INFERENCE PHASE — CONTENT                                         -->
+    <!-- ================================================================ -->
+
+    <!-- Transaction Input -->
+    <div class="section-label" style="left:630px; top:135px;">Input</div>
+    <div class="box blue" style="left:660px; top:128px; width:580px; height:92px;">
+        <div class="box-title">New Transaction Input</div>
+        <div class="box-desc">
+            <b>Description</b> (free-text · Hindi/English mix · UPI IDs · merchant names) &nbsp;·&nbsp;
+            <b>Payment Mode</b> (UPI / NEFT / IMPS / RTGS) &nbsp;·&nbsp;
+            <b>Amount ₹</b> &nbsp;·&nbsp; <b>Date</b> &nbsp;·&nbsp; <b>Dr / Cr flag</b><br>
+            Input: any batch size &nbsp;·&nbsp; Source: CSV stream or real-time feed
+        </div>
+    </div>
+
+    <!-- PROPRIETARY MODEL wrapper -->
+    <div class="section-label" style="left:630px; top:288px;">Model</div>
+    <div class="prop-wrapper" style="left:657px; top:278px; width:588px; height:150px;"></div>
+    <div class="prop-label"   style="left:780px; top:268px;">★ &nbsp; OUR PROPRIETARY TRAINED MODEL</div>
+
+    <div class="box dark" style="left:668px; top:295px; width:565px; height:120px;">
+        <div class="box-title" style="color:#f1c40f;">FusionEncoder &nbsp;—&nbsp; Inference Mode (FP16)</div>
+        <div class="box-desc">
+            Loads <code style="color:#aed6f1;">fusion_encoder_best.pth</code> · Runs at FP16 precision (2× faster, 40% less memory)<br>
+            <b style="color:#ccc;">Text</b> → IndicBERT mean-pool (768-dim) &nbsp;+&nbsp;
+            <b style="color:#ccc;">Mode</b> → Categorical Embedding (4-dim) &nbsp;+&nbsp;
+            <b style="color:#ccc;">Amount</b> → Scaler (1-dim)<br>
+            MLP + LayerNorm → <b style="color:#f9e79f;">256-dim L2-normalised query vector</b>
+        </div>
+    </div>
+    <div class="model-tag mt-blue" style="left:1177px; top:282px;">IndicBERT v2</div>
+
+    <!-- FAISS Retrieval + Prototypes -->
+    <div class="section-label" style="left:630px; top:492px;">Retrieval</div>
+    <div class="box green" style="left:660px; top:486px; width:310px; height:120px;">
+        <div class="box-title">FAISS k-NN Retrieval</div>
+        <div class="box-desc">
+            HNSW graph — 50× faster than flat L2<br>
+            <b>Top-10 nearest neighbours</b> retrieved<br>
+            FP16 index · GPU-accelerated (optional)<br>
+            Returns distances + category labels
+        </div>
+    </div>
+    <div class="box teal" style="left:990px; top:486px; width:258px; height:120px;">
+        <div class="box-title">Per-class Prototypes</div>
+        <div class="box-desc">
+            43 L2-normalised class centroids<br>
+            Loaded from artifacts<br>
+            Cosine similarity to query vector<br>
+            Frequency-bias immune
+        </div>
+    </div>
+
+    <!-- Blended Scoring -->
+    <div class="section-label" style="left:630px; top:666px;">Scoring</div>
+    <div class="box orange" style="left:660px; top:660px; width:588px; height:92px;">
+        <div class="box-title">Blended Scoring</div>
+        <div class="box-desc">
+            <b>α · kNN distance-weighted vote</b> (top-10 inverse-distance weights, softmax-normalised)<br>
+            + &nbsp;<b>(1-α) · prototype cosine similarity</b> &nbsp;·&nbsp; α = 0.6 (60% kNN, 40% prototype)<br>
+            Per-class confidence scores → identifies predicted category + confidence
+        </div>
+    </div>
+
+    <!-- OOD Detection + Confidence Gate -->
+    <div class="section-label" style="left:630px; top:806px;">Gate</div>
+    <div class="box red" style="left:660px; top:800px; width:588px; height:102px;">
+        <div class="box-title">OOD Detection + Confidence Gate</div>
+        <div class="box-desc">
+            Min k-NN distance compared to calibrated OOD threshold (from <i>training_artifacts.pkl</i>)<br>
+            <b>If distance &gt; threshold → flag as Out-of-Distribution (new, unseen transaction type)</b><br>
+            <b>If confidence &lt; 0.75 → escalate to LLM fallback</b> &nbsp;·&nbsp;
+            Both conditions trigger escalation
+        </div>
+    </div>
+
+    <!-- Output split -->
+    <div class="section-label" style="left:630px; top:972px;">Output</div>
+
+    <div class="box green" style="left:650px; top:966px; width:245px; height:120px;">
+        <div class="box-title">Direct Output</div>
+        <div class="box-desc">
+            Predicted category (1 of 43)<br>
+            Confidence score<br>
+            Top-3 similar txns (audit trail)<br>
+            OOD flag + distance
+        </div>
+    </div>
+    <div class="conf-badge badge-green" style="left:784px; top:958px;">≥ 0.75 conf</div>
+
+    <div class="box orange" style="left:998px; top:966px; width:245px; height:120px;">
+        <div class="box-title">LLM Fallback</div>
+        <div class="box-desc">
+            Ollama / OpenAI / Anthropic<br>
+            Few-shot prompt + top-3 neighbours<br>
+            <b>~10% of transactions</b><br>
+            LLM override flag in output
+        </div>
+    </div>
+    <div class="conf-badge badge-orange" style="left:1025px; top:958px;">OOD / low conf</div>
+    <div class="model-tag" style="left:1182px; top:970px;">llama3.2</div>
+
+    <!-- Final Output -->
+    <div class="box dark" style="left:660px; top:1148px; width:588px; height:102px;">
+        <div class="box-title" style="color:#f1c40f;">Final Output Row</div>
+        <div class="box-desc">
+            <b style="color:#aed6f1;">predicted_category</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">confidence</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">is_ood</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">ood_distance</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">needs_llm</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">top3_retrieved_desc</b><br>
+            Written to <code style="color:#aed6f1;">inference_results.csv</code> &nbsp;·&nbsp;
+            <b>1M rows in ~15 minutes</b> (HNSW + FP16 + batch GPU ops)
+        </div>
+    </div>
+
+    <!-- Output data store -->
+    <div class="data-store" style="left:900px; top:1302px;">
+        <div class="disks">
+            <div class="disk disk-gray"></div>
+            <div class="disk disk-gray"></div>
+            <div class="disk disk-gray"></div>
+        </div>
+        <div class="ds-label">inference_results.csv</div>
+        <div class="ds-detail">All tagged transactions<br>with full audit trail</div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- STATS BAR                                                         -->
+    <!-- ================================================================ -->
+    <div class="stats-bar" style="left:15px; top:1430px; width:1270px;">
+        <b style="color:#1b3a6b;">Throughput:</b> &nbsp;1M transactions in ~15 min &nbsp;&nbsp;·&nbsp;&nbsp;
+        <b style="color:#1b3a6b;">Latency:</b> &nbsp;&lt;15ms per transaction &nbsp;&nbsp;·&nbsp;&nbsp;
+        <b style="color:#1b3a6b;">Automation:</b> &nbsp;~90% direct &nbsp;·&nbsp; ~10% LLM escalation &nbsp;&nbsp;·&nbsp;&nbsp;
+        <b style="color:#1b3a6b;">Cloud GPU cost:</b> &nbsp;~$80 / month &nbsp;&nbsp;·&nbsp;&nbsp;
+        <b style="color:#1b3a6b;">Categories:</b> &nbsp;43 &nbsp;&nbsp;·&nbsp;&nbsp;
+        <b style="color:#1b3a6b;">Training data:</b> &nbsp;35,000 labeled rows
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- LEGEND                                                            -->
+    <!-- ================================================================ -->
+    <div class="legend" style="left:15px; top:1510px;">
+        <div class="legend-item"><div class="legend-dot" style="background:#154360;"></div> Training phase</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#145a32;"></div> Inference phase</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e8daef; border:1px solid #bb8fce;"></div> SupCon training</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1c2833;"></div> FusionEncoder (proprietary)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d5f5e3; border:1px solid #82e0aa;"></div> Retrieval / Direct output</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fadbd8; border:1px solid #f1948a;"></div> OOD / Decision gate</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fdebd0; border:1px solid #f0b27a;"></div> LLM fallback / Offline</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f1c40f;"></div> Proprietary model / Model tag</div>
+        <div class="legend-item">
+            <svg width="28" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#d4ac0d" stroke-width="2" stroke-dasharray="5 3"/><polygon points="20,3 28,6 20,9" fill="#d4ac0d"/></svg>
+            Artifact load (cross-phase)
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

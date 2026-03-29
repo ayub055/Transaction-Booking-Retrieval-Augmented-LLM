@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technical Architecture - Transaction Tagger</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fdfdfd;
+            padding: 40px 20px;
+            color: #333;
+        }
+        .canvas {
+            position: relative;
+            width: 1300px;
+            margin: 0 auto;
+            min-height: 1820px;
+        }
+        .title {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .title h1 {
+            font-size: 22px;
+            color: #2c3e50;
+            font-weight: 700;
+        }
+        .title .subtitle {
+            font-size: 13px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* phase banners */
+        .phase-banner {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            padding: 4px 12px;
+            border-radius: 4px;
+            z-index: 2;
+        }
+        .banner-inference { background: #d6eaf8; color: #1a5276; border: 1px solid #85c1e9; }
+        .banner-offline   { background: #fdebd0; color: #784212; border: 1px solid #f0b27a; }
+
+        /* generic box */
+        .box {
+            position: absolute;
+            border-radius: 10px;
+            padding: 13px 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.09);
+            z-index: 2;
+        }
+        .box .box-title {
+            font-weight: 700;
+            font-size: 13.5px;
+            margin-bottom: 5px;
+        }
+        .box .box-desc {
+            font-size: 11px;
+            color: #444;
+            line-height: 1.5;
+        }
+
+        /* colour themes */
+        .blue   { background: #d6eaf8; border: 2px solid #85c1e9; }
+        .green  { background: #d5f5e3; border: 2px solid #82e0aa; }
+        .purple { background: #e8daef; border: 2px solid #bb8fce; }
+        .yellow { background: #fef9e7; border: 2px solid #f9e79f; }
+        .orange { background: #fdebd0; border: 2px solid #f0b27a; }
+        .red    { background: #fadbd8; border: 2px solid #f1948a; }
+        .gray   { background: #eaecee; border: 2px solid #aab7b8; }
+        .dark   { background: #2c3e50; border: 2px solid #1a252f; color: #fff; }
+        .dark .box-desc { color: #ccc; }
+        .teal   { background: #d1f2eb; border: 2px solid #76d7c4; }
+
+        /* model tag */
+        .model-tag {
+            position: absolute;
+            background: #f1c40f;
+            color: #333;
+            font-weight: 800;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            z-index: 3;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            white-space: nowrap;
+        }
+        .model-tag.green-tag  { background: #27ae60; color: #fff; }
+        .model-tag.navy-tag   { background: #1b3a6b; color: #fff; }
+
+        /* data store (cylinder icon) */
+        .data-store {
+            position: absolute;
+            z-index: 2;
+            text-align: center;
+        }
+        .data-store .disks {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .data-store .disk {
+            width: 72px;
+            height: 14px;
+            border-radius: 50%;
+            margin-top: -4px;
+        }
+        .disk-blue   { background: #3498db; border: 1px solid #2980b9; }
+        .disk-green  { background: #27ae60; border: 1px solid #1e8449; }
+        .disk-orange { background: #e67e22; border: 1px solid #ca6f1e; }
+        .disk-gray   { background: #95a5a6; border: 1px solid #7f8c8d; }
+        .data-store .ds-label  { font-size: 12px; font-weight: 700; margin-top: 6px; color: #444; }
+        .data-store .ds-detail { font-size: 10px; color: #888; max-width: 110px; line-height: 1.4; margin-top: 2px; }
+
+        /* confidence badge */
+        .conf-badge {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 20px;
+            z-index: 3;
+        }
+        .badge-green  { background: #27ae60; color: #fff; }
+        .badge-orange { background: #e67e22; color: #fff; }
+
+        /* section label */
+        .section-label {
+            position: absolute;
+            font-size: 10.5px;
+            font-weight: 700;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            z-index: 2;
+        }
+
+        /* divider rule */
+        .h-rule {
+            position: absolute;
+            height: 1px;
+            background: #e5e8ec;
+            z-index: 1;
+        }
+
+        /* arrows */
+        svg.arrows {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .arrow-line  { stroke: #7f8c8d; stroke-width: 2; fill: none; }
+        .arrow-blue  { stroke: #2980b9; stroke-width: 2; fill: none; }
+        .arrow-green { stroke: #27ae60; stroke-width: 2; fill: none; }
+        .arrow-orange{ stroke: #e67e22; stroke-width: 2; fill: none; }
+        .arrow-dash  { stroke: #b2bec3; stroke-width: 1.8; stroke-dasharray: 8 4; fill: none; }
+        .arrow-head  { fill: #7f8c8d; }
+        .arrow-head-blue   { fill: #2980b9; }
+        .arrow-head-green  { fill: #27ae60; }
+        .arrow-head-orange { fill: #e67e22; }
+        .arrow-label {
+            font-size: 10.5px;
+            fill: #c0392b;
+            font-style: italic;
+            font-weight: 600;
+        }
+        .arrow-label-gray {
+            font-size: 10px;
+            fill: #95a5a6;
+            font-style: italic;
+        }
+
+        /* legend */
+        .legend {
+            position: absolute;
+            bottom: 12px;
+            left: 0;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 11px;
+            color: #666;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-dot  { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+
+        /* offline region background */
+        .offline-region {
+            position: absolute;
+            background: rgba(253, 235, 208, 0.25);
+            border: 1.5px dashed #f0b27a;
+            border-radius: 14px;
+            z-index: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="canvas">
+
+    <div class="title">
+        <h1>Transaction Tagger — Technical Architecture</h1>
+        <div class="subtitle">RAG + Embeddings + LLM Hybrid · IndicBERT · Stratified FAISS · OOD Detection · 10M+ transactions/month</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  OFFLINE REGION BACKGROUND                                    -->
+    <!-- ============================================================ -->
+    <div class="offline-region" style="left:900px; top:105px; width:375px; height:750px;"></div>
+    <div class="phase-banner banner-offline" style="left:916px; top:115px;">Offline — Index Build &amp; Training</div>
+
+    <!-- ============================================================ -->
+    <!--  SVG ARROWS                                                   -->
+    <!-- ============================================================ -->
+    <svg class="arrows" viewBox="0 0 1300 1820">
+        <defs>
+            <marker id="ah"        markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="arrow-head"/></marker>
+            <marker id="ah-blue"   markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="arrow-head-blue"/></marker>
+            <marker id="ah-green"  markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="arrow-head-green"/></marker>
+            <marker id="ah-orange" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" class="arrow-head-orange"/></marker>
+        </defs>
+
+        <!-- ── STAGE 1 → encoding sub-components ─────────────────── -->
+        <!-- Input → IndicBERT -->
+        <path d="M 390 158 L 390 195 L 295 195 L 295 225" class="arrow-blue" marker-end="url(#ah-blue)"/>
+        <!-- Input → Categorical -->
+        <line x1="530" y1="158" x2="530" y2="225" class="arrow-blue" marker-end="url(#ah-blue)"/>
+        <!-- Input → Numeric -->
+        <path d="M 660 158 L 660 195 L 730 195 L 730 225" class="arrow-blue" marker-end="url(#ah-blue)"/>
+
+        <!-- ── encoding sub → Fusion Encoder ─────────────────────── -->
+        <line x1="295" y1="330" x2="295" y2="400" class="arrow-line" marker-end="url(#ah)"/>
+        <line x1="530" y1="330" x2="530" y2="400" class="arrow-line" marker-end="url(#ah)"/>
+        <line x1="730" y1="330" x2="730" y2="400" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- ── Fusion Encoder → FAISS + Prototypes ────────────────── -->
+        <path d="M 485 483 L 485 510 L 320 510 L 320 558" class="arrow-green" marker-end="url(#ah-green)"/>
+        <path d="M 485 483 L 485 510 L 620 510 L 620 558" class="arrow-green" marker-end="url(#ah-green)"/>
+        <text x="490" y="505" class="arrow-label">256-dim vector</text>
+
+        <!-- ── FAISS + Prototypes → Blended Scoring ──────────────── -->
+        <path d="M 320 673 L 320 710 L 430 710 L 430 748" class="arrow-line" marker-end="url(#ah)"/>
+        <path d="M 620 673 L 620 710 L 430 710" class="arrow-line"/>
+
+        <!-- ── Blended Scoring → OOD Gate ────────────────────────── -->
+        <line x1="430" y1="833" x2="430" y2="905" class="arrow-line" marker-end="url(#ah)"/>
+        <text x="438" y="873" class="arrow-label">blended score</text>
+
+        <!-- ── OOD Gate → Direct Output ──────────────────────────── -->
+        <path d="M 310 1000 L 310 1030 L 255 1030 L 255 1082" class="arrow-green" marker-end="url(#ah-green)"/>
+        <text x="195" y="1022" class="arrow-label" style="fill:#27ae60;">≥ 0.75 conf</text>
+
+        <!-- ── OOD Gate → LLM Fallback ───────────────────────────── -->
+        <path d="M 555 1000 L 555 1030 L 660 1030 L 660 1082" class="arrow-orange" marker-end="url(#ah-orange)"/>
+        <text x="568" y="1022" class="arrow-label">low conf / OOD</text>
+
+        <!-- ── Direct Output → Final Output ──────────────────────── -->
+        <path d="M 255 1192 L 255 1230 L 420 1230 L 420 1268" class="arrow-line" marker-end="url(#ah)"/>
+        <!-- ── LLM Fallback → Final Output ────────────────────────── -->
+        <path d="M 660 1192 L 660 1230 L 540 1230 L 540 1268" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- ── Final Output → CSV/Stream ─────────────────────────── -->
+        <line x1="480" y1="1360" x2="480" y2="1415" class="arrow-line" marker-end="url(#ah)"/>
+
+        <!-- ═══ OFFLINE SIDE ══════════════════════════════════════ -->
+
+        <!-- Golden Records → SupCon Training -->
+        <line x1="1045" y1="255" x2="1045" y2="290" class="arrow-dash" marker-end="url(#ah)"/>
+
+        <!-- SupCon Training → FusionEncoder (provides weights) -->
+        <path d="M 920 380 L 870 380 L 870 440 L 820 440" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="830" y="372" class="arrow-label-gray">trained weights</text>
+
+        <!-- SupCon Training → FAISS Index Build -->
+        <path d="M 1045 450 L 1045 490 L 1045 530" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="1055" y="494" class="arrow-label-gray">encode all 35K rows</text>
+
+        <!-- FAISS Index Build → FAISS box (inference side) -->
+        <path d="M 920 605 L 830 605 L 830 580 L 460 580" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="840" y="596" class="arrow-label-gray">load index</text>
+
+        <!-- OOD Calibration → OOD Gate -->
+        <path d="M 920 700 L 880 700 L 880 950 L 650 950" class="arrow-dash" marker-end="url(#ah)"/>
+        <text x="884" y="820" class="arrow-label-gray" transform="rotate(90 884 820)">calibrated threshold</text>
+
+        <!-- Artifacts store → FusionEncoder (loads weights) -->
+        <path d="M 920 810 L 880 810 L 880 840 L 870 840 L 870 440 " class="arrow-dash"/>
+
+    </svg>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 1 — INPUT                                              -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:72px;">Stage 1</div>
+    <div class="box blue" style="left:190px; top:68px; width:680px; height:90px;">
+        <div class="box-title">Transaction Input</div>
+        <div class="box-desc">
+            <b>Description</b> (free-text, Hindi/English mix, UPI IDs, merchant names) &nbsp;·&nbsp;
+            <b>Payment Mode</b> (UPI / NEFT / IMPS / RTGS) &nbsp;·&nbsp;
+            <b>Amount ₹</b> &nbsp;·&nbsp;
+            <b>Date</b> &nbsp;·&nbsp; <b>Dr / Cr flag</b>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 2 — FUSION ENCODER                                     -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:225px;">Stage 2</div>
+
+    <!-- sub-component: IndicBERT -->
+    <div class="box purple" style="left:175px; top:225px; width:225px; height:105px;">
+        <div class="box-title">IndicBERT Encoder</div>
+        <div class="box-desc">
+            Text → 768-dim embeddings<br>
+            Mean pooling (not [CLS])<br>
+            Handles Hindi/English transliteration
+        </div>
+    </div>
+    <div class="model-tag" style="left:410px; top:228px;">IndicBERT v2</div>
+
+    <!-- sub-component: Categorical Embedding -->
+    <div class="box blue" style="left:420px; top:225px; width:215px; height:105px;">
+        <div class="box-title">Categorical Embedding</div>
+        <div class="box-desc">
+            UPI / NEFT / IMPS / RTGS<br>
+            Learned 4-dim embedding per mode<br>
+            Pre-seeded vocab (no OOV)
+        </div>
+    </div>
+
+    <!-- sub-component: Numeric Scaler -->
+    <div class="box yellow" style="left:655px; top:225px; width:155px; height:105px;">
+        <div class="box-title">Numeric Scaler</div>
+        <div class="box-desc">
+            Amount (₹)<br>
+            StandardScaler<br>
+            normalised
+        </div>
+    </div>
+
+    <!-- Fusion Encoder span box -->
+    <div class="box dark" style="left:155px; top:400px; width:680px; height:83px;">
+        <div class="box-title" style="color:#f1c40f;">FusionEncoder &nbsp;—&nbsp; MLP + LayerNorm</div>
+        <div class="box-desc">
+            Concatenates text (768-dim) + categorical (4-dim) + numeric (1-dim) &nbsp;→&nbsp;
+            Deeper MLP &nbsp;→&nbsp; LayerNorm &nbsp;→&nbsp; <b style="color:#f9e79f;">256-dim L2-normalised vector</b>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 3 — RETRIEVAL                                          -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:562px;">Stage 3</div>
+
+    <div class="box green" style="left:155px; top:558px; width:300px; height:115px;">
+        <div class="box-title">Stratified FAISS Index</div>
+        <div class="box-desc">
+            HNSW graph (50× faster than flat L2)<br>
+            Max <b>500 exemplars / class</b> — greedy farthest-point sampling<br>
+            Prevents majority classes drowning minority<br>
+            Top-10 k-NN retrieval · FP16
+        </div>
+    </div>
+
+    <div class="box teal" style="left:480px; top:558px; width:260px; height:115px;">
+        <div class="box-title">Per-class Prototypes</div>
+        <div class="box-desc">
+            L2-normalised class centroids<br>
+            43 prototype vectors<br>
+            Frequency-bias immune<br>
+            Blended with k-NN at inference
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 4 — SCORING                                            -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:752px;">Stage 4</div>
+
+    <div class="box orange" style="left:185px; top:748px; width:490px; height:85px;">
+        <div class="box-title">Blended Scoring</div>
+        <div class="box-desc">
+            <b>α · kNN distance-weighted vote</b> + <b>(1-α) · prototype cosine similarity</b> &nbsp;·&nbsp; α = 0.6 &nbsp;·&nbsp;
+            Inverse-distance weights on top-10 neighbours &nbsp;·&nbsp;
+            Softmax-normalised per-class confidence
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  STAGE 5 — DECISION GATE                                      -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:912px;">Stage 5</div>
+
+    <div class="box red" style="left:155px; top:905px; width:565px; height:95px;">
+        <div class="box-title">OOD Detection + Confidence Gate</div>
+        <div class="box-desc">
+            Distance threshold calibrated from real <i>'other'</i> transactions (192 rows, rgs.csv) via F1-optimisation<br>
+            Fallback: 95th percentile of within-corpus nearest-neighbour distances<br>
+            <b>If dist &gt; threshold OR confidence &lt; 0.75 → escalate to LLM fallback</b>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  OUTPUT SPLIT                                                 -->
+    <!-- ============================================================ -->
+    <div class="box green" style="left:115px; top:1082px; width:275px; height:110px;">
+        <div class="box-title">Direct Output</div>
+        <div class="box-desc">
+            Predicted category (1 of 43)<br>
+            Confidence score<br>
+            Top-3 similar transactions (audit trail)<br>
+            OOD flag + distance
+        </div>
+    </div>
+    <div class="conf-badge badge-green" style="left:285px; top:1075px;">≥ 0.75 conf</div>
+
+    <div class="box orange" style="left:530px; top:1082px; width:265px; height:110px;">
+        <div class="box-title">LLM Fallback</div>
+        <div class="box-desc">
+            Few-shot prompt with top-3 neighbours<br>
+            Ollama / OpenAI / Anthropic backend<br>
+            ~10% of total transactions<br>
+            LLM override flag in output
+        </div>
+    </div>
+    <div class="model-tag" style="left:805px; top:1087px;">llama3.2 / GPT-4o</div>
+    <div class="conf-badge badge-orange" style="left:572px; top:1075px;">OOD / low conf</div>
+
+    <!-- ============================================================ -->
+    <!--  FINAL OUTPUT                                                 -->
+    <!-- ============================================================ -->
+    <div class="box dark" style="left:210px; top:1268px; width:540px; height:92px;">
+        <div class="box-title" style="color:#f1c40f;">Final Output Row</div>
+        <div class="box-desc">
+            <b style="color:#aed6f1;">predicted_category</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">confidence</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">is_ood</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">ood_distance</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">needs_llm</b> &nbsp;·&nbsp;
+            <b style="color:#aed6f1;">top3_retrieved_desc</b><br>
+            Written to output CSV · 1M rows in ~15 minutes (HNSW + FP16 + batch GPU ops)
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  OUTPUT DATA STORE                                            -->
+    <!-- ============================================================ -->
+    <div class="data-store" style="left:445px; top:1415px;">
+        <div class="disks">
+            <div class="disk disk-gray"></div>
+            <div class="disk disk-gray"></div>
+            <div class="disk disk-gray"></div>
+        </div>
+        <div class="ds-label">inference_results.csv</div>
+        <div class="ds-detail">All transactions tagged<br>with full audit trail</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  ══ OFFLINE SECTION ══                                        -->
+    <!-- ============================================================ -->
+
+    <!-- Golden Records -->
+    <div class="data-store" style="left:990px; top:155px;">
+        <div class="disks">
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+        </div>
+        <div class="ds-label">Golden Records</div>
+        <div class="ds-detail">35K labeled rows<br>43 categories<br>rgs.csv source</div>
+    </div>
+
+    <!-- SupCon Training -->
+    <div class="box purple" style="left:920px; top:290px; width:300px; height:160px;">
+        <div class="box-title">SupCon Training</div>
+        <div class="box-desc">
+            <b>Supervised Contrastive Loss</b> — uses all in-batch positives<br>
+            <b>Per-class temperature scaling</b> — minority classes get sharper gradients<br>
+            <b>Gradual BERT unfreezing</b> — top layers first<br>
+            <b>Inverse-frequency class weighting</b><br>
+            <b>Class-balanced batch sampling</b>
+        </div>
+    </div>
+    <div class="model-tag" style="left:1230px; top:293px;">fine-tune</div>
+
+    <!-- FAISS Index Build -->
+    <div class="box green" style="left:920px; top:530px; width:300px; height:110px;">
+        <div class="box-title">Index Build (one-time)</div>
+        <div class="box-desc">
+            Encode all 35K golden records<br>
+            Stratify: max 500/class via greedy<br>
+            farthest-point sampling<br>
+            Build HNSW · compute class prototypes
+        </div>
+    </div>
+
+    <!-- OOD Calibration -->
+    <div class="box yellow" style="left:920px; top:660px; width:300px; height:100px;">
+        <div class="box-title">OOD Threshold Calibration</div>
+        <div class="box-desc">
+            Uses real 'other' rows → F1-optimise threshold<br>
+            Fallback: 95th pctl of in-corpus distances<br>
+            Saves threshold to <code>_metadata.pkl</code>
+        </div>
+    </div>
+
+    <!-- Saved Artifacts -->
+    <div class="data-store" style="left:1000px; top:790px;">
+        <div class="disks">
+            <div class="disk disk-orange"></div>
+            <div class="disk disk-orange"></div>
+            <div class="disk disk-orange"></div>
+        </div>
+        <div class="ds-label">Saved Artifacts</div>
+        <div class="ds-detail">
+            fusion_encoder_best.pth<br>
+            golden_records.faiss<br>
+            training_artifacts.pkl<br>
+            class_prototypes.npy
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  SCALE CALLOUT                                                -->
+    <!-- ============================================================ -->
+    <div style="position:absolute; left:110px; top:1510px; width:760px; text-align:center;
+                background:#f0f4f8; border:1px solid #d0d8e4; border-radius:8px;
+                padding:12px 20px; font-size:12px; color:#555; z-index:2;">
+        <b style="color:#1b3a6b;">Throughput:</b> &nbsp;1M transactions in ~15 min &nbsp;·&nbsp;
+        <b style="color:#1b3a6b;">Latency:</b> &nbsp;&lt;15ms per transaction &nbsp;·&nbsp;
+        <b style="color:#1b3a6b;">Automation:</b> &nbsp;~90% direct · ~10% LLM &nbsp;·&nbsp;
+        <b style="color:#1b3a6b;">Cloud GPU cost:</b> &nbsp;~$80 / month
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  TRAINING DATA SOURCES (left side)                            -->
+    <!-- ============================================================ -->
+    <div class="section-label" style="left:22px; top:1620px;">Data Sources</div>
+
+    <div class="data-store" style="left:22px; top:1650px;">
+        <div class="disks">
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+            <div class="disk disk-blue"></div>
+        </div>
+        <div class="ds-label">rgs.csv</div>
+        <div class="ds-detail">192 real transactions<br>Single customer<br>OOD calibration</div>
+    </div>
+
+    <div class="data-store" style="left:160px; top:1650px;">
+        <div class="disks">
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+            <div class="disk disk-green"></div>
+        </div>
+        <div class="ds-label">Training CSV</div>
+        <div class="ds-detail">35K labeled rows<br>43 categories<br>250–5000 / class</div>
+    </div>
+
+    <div class="data-store" style="left:300px; top:1650px;">
+        <div class="disks">
+            <div class="disk disk-orange"></div>
+            <div class="disk disk-orange"></div>
+            <div class="disk disk-orange"></div>
+        </div>
+        <div class="ds-label">New Input CSV</div>
+        <div class="ds-detail">Unseen transactions<br>to be classified<br>any batch size</div>
+    </div>
+
+    <!-- Experiment configs note -->
+    <div class="box gray" style="left:460px; top:1640px; width:340px; height:90px;">
+        <div class="box-title">experiments_with_validation.yaml</div>
+        <div class="box-desc">
+            4 configs: baseline triplet / SupCon / IndicBERT+SupCon / large 512-dim<br>
+            Tracks: Recall@1/5/10 · Macro-F1 · OOD AUROC · ECE
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!--  LEGEND                                                       -->
+    <!-- ============================================================ -->
+    <div class="legend" style="top:1762px;">
+        <div class="legend-item"><div class="legend-dot" style="background:#d6eaf8; border:1px solid #85c1e9;"></div> Input / Core pipeline</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2c3e50;"></div> FusionEncoder (trained)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d5f5e3; border:1px solid #82e0aa;"></div> Retrieval / Output</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d1f2eb; border:1px solid #76d7c4;"></div> Prototypes</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fadbd8; border:1px solid #f1948a;"></div> Decision gate</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fdebd0; border:1px solid #f0b27a;"></div> LLM / Offline</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e8daef; border:1px solid #bb8fce;"></div> Training / LLM model</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f1c40f;"></div> Model tag</div>
+    </div>
+
+</div>
+</body>
+</html>

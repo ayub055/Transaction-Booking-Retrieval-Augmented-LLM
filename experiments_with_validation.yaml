@@ -1,17 +1,22 @@
 # Experiment configurations for FusionEncoder training
 #
 # New fields (all optional, with sensible defaults):
-#   loss_type:           'triplet' (default) or 'supcon' (Supervised Contrastive)
-#   temperature:         SupCon temperature (default 0.07)
-#   ood_label:           Label string to exclude from training (default 'other')
-#   balanced_sampling:   Use ClassBalancedBatchSampler for equal class representation
-#   inv_freq_weighting:  Apply sqrt(N/n_class) loss weights to counter majority dominance
-#   semi_hard_mining:    Use semi-hard negative mining instead of random triplets
-#   max_per_class_index: Max samples per class in stratified FAISS index (default 500)
-#   use_prototypes:      Blend prototype similarity with k-NN vote at inference
-#   prototype_alpha:     Weight given to k-NN vote (1-alpha → prototype), default 0.6
-#   ood_percentile:      Fallback percentile for OOD threshold (default 95)
-#   bert_model:          Set to "ai4bharat/IndicBERTv2-MLM-Sam-TLM" for IndicBERT
+#   loss_type:            'triplet' (default) or 'supcon' (Supervised Contrastive)
+#   temperature:          SupCon temperature (default 0.07)
+#   ood_label:            Label string to exclude from training (default 'other')
+#   balanced_sampling:    Use ClassBalancedBatchSampler for equal class representation
+#   inv_freq_weighting:   Apply sqrt(N/n_class) loss weights to counter majority dominance
+#   semi_hard_mining:     Use semi-hard negative mining instead of random triplets
+#   max_per_class_index:  Max samples per class in stratified FAISS index (default 500)
+#   use_prototypes:       Blend prototype similarity with k-NN vote at inference
+#   prototype_alpha:      Weight given to k-NN vote (1-alpha → prototype), default 0.6
+#   ood_percentile:       Fallback percentile for OOD threshold (default 95)
+#   bert_model:           Set to "ai4bharat/IndicBERTv2-MLM-Sam-TLM" for IndicBERT
+#   accumulation_steps:   Gradient accumulation steps (default 1 = no accumulation)
+#                         effective_batch = batch_size × accumulation_steps
+#   base_batch_size:      Reference batch size for LR scaling (default 256)
+#   base_lr:              If set, lr is auto-scaled: base_lr × sqrt(effective_batch / base_batch)
+#                         Use this instead of lr when using gradient accumulation
 
 # ---------------------------------------------------------------------------
 # Experiment 1 — Baseline: triplet loss, frozen BERT, 256-D embeddings
@@ -29,6 +34,8 @@
   loss_type: "triplet"
   epochs: 20
   batch_size: 128
+  accumulation_steps: 1      # no accumulation — triplet baseline
+  base_batch_size: 128
   lr: 0.00001
   margin: 0.5
   dropout: 0.1
@@ -62,7 +69,9 @@
   semi_hard_mining: true
   epochs: 30
   batch_size: 128
-  lr: 0.00002
+  accumulation_steps: 4      # effective batch = 512; SupCon benefits from larger batches
+  base_batch_size: 128
+  base_lr: 0.00002           # auto-scaled to ~0.00004 for effective batch 512
   margin: 0.5
   dropout: 0.1
   val_split: 0.15
@@ -94,7 +103,9 @@
   semi_hard_mining: true
   epochs: 30
   batch_size: 128
-  lr: 0.00001
+  accumulation_steps: 4      # effective batch = 512
+  base_batch_size: 128
+  base_lr: 0.00001           # auto-scaled for effective batch 512
   margin: 0.5
   dropout: 0.1
   val_split: 0.15
@@ -125,7 +136,9 @@
   semi_hard_mining: true
   epochs: 25
   batch_size: 64
-  lr: 0.00003
+  accumulation_steps: 8      # effective batch = 512; full fine-tune needs small physical batch
+  base_batch_size: 128
+  base_lr: 0.00003           # auto-scaled for effective batch 512
   margin: 0.5
   dropout: 0.2
   val_split: 0.15

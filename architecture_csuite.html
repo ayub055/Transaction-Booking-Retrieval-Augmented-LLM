@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Transaction Classification — System Overview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    background: #F2F4F8;
+    color: #1e293b;
+    padding: 40px 30px 60px;
+  }
+
+  /* ── page wrapper ── */
+  .page { width: 1260px; margin: 0 auto; }
+
+  /* ── header ── */
+  .header {
+    background: linear-gradient(135deg, #1B3868 0%, #2563EB 100%);
+    border-radius: 16px;
+    padding: 32px 44px;
+    color: #fff;
+    margin-bottom: 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.3px; }
+  .header p  { font-size: 13.5px; opacity: 0.78; margin-top: 6px; max-width: 640px; }
+  .header-badge {
+    background: rgba(255,255,255,0.15);
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 12px;
+    padding: 14px 22px;
+    text-align: center;
+    flex-shrink: 0;
+    margin-left: 32px;
+  }
+  .header-badge .hb-val  { font-size: 28px; font-weight: 900; color: #FCD34D; }
+  .header-badge .hb-lbl  { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+  /* ── main grid: two columns ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 420px 26px 1fr;
+    gap: 0;
+    align-items: start;
+  }
+
+  /* ── LEFT: Intelligence Foundation ── */
+  .foundation {
+    background: #1B3868;
+    border-radius: 14px;
+    padding: 22px 18px;
+    color: #fff;
+  }
+  .foundation-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #93C5FD;
+    margin-bottom: 6px;
+  }
+  .foundation-heading {
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.3;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+
+  .f-card {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 14px 15px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .f-card:last-child { margin-bottom: 0; }
+  .f-card-num {
+    width: 22px; height: 22px;
+    background: #2563EB;
+    border-radius: 50%;
+    font-size: 10px; font-weight: 800; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 12px; right: 12px;
+  }
+  .f-card-title {
+    font-size: 12.5px; font-weight: 700; color: #E0EDFF;
+    margin-bottom: 7px;
+  }
+  .f-card-body {
+    font-size: 10.5px; color: #93C5FD; line-height: 1.55;
+  }
+  .f-card-stat {
+    display: inline-block;
+    background: rgba(37,99,235,0.35);
+    border: 1px solid rgba(99,160,255,0.35);
+    border-radius: 6px;
+    font-size: 10px; font-weight: 700; color: #BFDBFE;
+    padding: 2px 8px;
+    margin-top: 7px;
+  }
+
+  .powers-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 180px;
+    gap: 6px;
+  }
+  .powers-arrow .pa-label {
+    font-size: 8px; font-weight: 800; color: #D97706;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    writing-mode: vertical-lr;
+    transform: rotate(180deg);
+  }
+  .powers-arrow .pa-line {
+    width: 2px;
+    height: 120px;
+    background: linear-gradient(to bottom, #D97706, #FCD34D);
+    border-radius: 2px;
+  }
+  .powers-arrow .pa-head {
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 9px solid #FCD34D;
+  }
+
+  /* ── RIGHT: Inference Engine ── */
+  .inference { padding-left: 8px; }
+  .inference-header {
+    background: linear-gradient(135deg, #064E3B 0%, #059669 100%);
+    border-radius: 12px 12px 0 0;
+    padding: 14px 22px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0;
+  }
+  .inference-header .ih-title {
+    font-size: 10px; font-weight: 800; letter-spacing: 2.5px;
+    text-transform: uppercase; color: #A7F3D0;
+  }
+  .inference-header .ih-sub {
+    font-size: 11px; color: rgba(255,255,255,0.65); margin-left: auto;
+  }
+  .inference-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4ADE80;
+    box-shadow: 0 0 6px #4ADE80;
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+  }
+
+  .inference-body {
+    background: #fff;
+    border-radius: 0 0 12px 12px;
+    border: 1.5px solid #E2E8F0;
+    border-top: none;
+    padding: 20px 22px 22px;
+  }
+
+  /* ── inference step card ── */
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .step-connector {
+    position: absolute;
+    left: 17px;
+    top: 44px;
+    bottom: -6px;
+    width: 2px;
+    background: #E2E8F0;
+    z-index: 0;
+  }
+  .step-connector.green  { background: linear-gradient(to bottom, #059669, #34D399); }
+  .step-connector.purple { background: linear-gradient(to bottom, #7C3AED, #A78BFA); }
+
+  .step-num {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; color: #fff;
+    flex-shrink: 0; z-index: 1; position: relative;
+    margin-top: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  .step-card {
+    flex: 1;
+    border-radius: 10px;
+    padding: 14px 18px;
+    border: 1.5px solid #E2E8F0;
+    background: #FAFCFF;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .step-card.featured {
+    border: 2.5px dashed #D97706;
+    background: #FFFBEB;
+  }
+  .step-card.split-card { flex: 1; }
+
+  .step-title {
+    font-size: 13.5px; font-weight: 700; color: #1B3868;
+    margin-bottom: 5px;
+  }
+  .step-card.featured .step-title { color: #92400E; }
+  .step-desc {
+    font-size: 11px; color: #64748B; line-height: 1.6;
+  }
+  .step-card.featured .step-desc { color: #78350F; }
+
+  /* proprietary label */
+  .prop-label {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #D97706; color: #fff;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.8px;
+    padding: 4px 12px; border-radius: 20px;
+    position: absolute; top: -14px; left: 18px;
+    box-shadow: 0 2px 8px rgba(217,119,6,0.4);
+  }
+
+  /* tag pills inside cards */
+  .tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 9px; border-radius: 20px;
+    margin-right: 5px; margin-top: 7px;
+  }
+  .tag-blue   { background:#DBEAFE; color:#1D4ED8; }
+  .tag-green  { background:#D1FAE5; color:#065F46; }
+  .tag-gold   { background:#FEF3C7; color:#92400E; }
+  .tag-purple { background:#EDE9FE; color:#5B21B6; }
+  .tag-red    { background:#FEE2E2; color:#991B1B; }
+  .tag-teal   { background:#CCFBF1; color:#134E4A; }
+
+  /* ── split row (Direct + LLM) ── */
+  .split-row {
+    display: flex; gap: 12px; margin-left: 52px;
+    margin-bottom: 10px;
+  }
+  .split-card-green {
+    flex: 1; border-radius: 10px; padding: 14px 16px;
+    border: 2px solid #34D399; background: #F0FDF4;
+  }
+  .split-card-purple {
+    flex: 1; border-radius: 10px; padding: 14px 16px;
+    border: 2px solid #A78BFA; background: #F5F3FF;
+  }
+  .split-card-title {
+    font-size: 13px; font-weight: 700; margin-bottom: 5px;
+  }
+  .split-card-green  .split-card-title { color: #065F46; }
+  .split-card-purple .split-card-title { color: #5B21B6; }
+  .split-card-body { font-size: 10.5px; color: #64748B; line-height: 1.55; }
+  .path-badge {
+    display: inline-block; font-size: 9px; font-weight: 800;
+    padding: 2px 9px; border-radius: 20px; margin-bottom: 7px;
+  }
+  .path-auto  { background:#059669; color:#fff; }
+  .path-llm   { background:#7C3AED; color:#fff; }
+
+  /* model tag */
+  .model-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #FEF3C7; border: 1px solid #FDE68A;
+    color: #92400E; font-size: 9.5px; font-weight: 800;
+    padding: 2px 9px; border-radius: 20px;
+    margin-top: 6px; margin-right: 4px;
+  }
+
+  /* ── output bar ── */
+  .output-bar {
+    margin-left: 52px; margin-bottom: 10px;
+    background: linear-gradient(135deg, #1B3868 0%, #1E4D9B 100%);
+    border-radius: 10px; padding: 14px 20px;
+    color: #fff;
+  }
+  .output-bar .ob-title {
+    font-size: 13px; font-weight: 700; color: #FCD34D; margin-bottom: 5px;
+  }
+  .output-field {
+    display: inline-block;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; font-size: 10px; font-weight: 600;
+    padding: 2px 9px; margin: 3px 3px 0 0; color: #BFDBFE;
+  }
+
+  /* ── small connector arrow between step card and split ── */
+  .mini-arrow {
+    margin-left: 52px; height: 18px;
+    display: flex; align-items: center;
+    padding-left: 150px;
+    gap: 60px;
+    position: relative;
+    margin-bottom: 0;
+  }
+  .mini-arrow::before, .mini-arrow::after {
+    content: '';
+    display: block;
+    width: 2px; height: 18px;
+    background: #CBD5E1;
+  }
+  .mini-arrow-label {
+    position: absolute; left: 50%;
+    font-size: 9px; color: #94A3B8;
+    white-space: nowrap; transform: translateX(-50%);
+  }
+
+  /* ── metrics bar ── */
+  .metrics-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-top: 24px;
+  }
+  .metric-tile {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+    border: 1.5px solid #E2E8F0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .metric-tile .mt-val {
+    font-size: 26px; font-weight: 900; color: #1B3868;
+    line-height: 1;
+  }
+  .metric-tile .mt-lbl {
+    font-size: 11px; color: #64748B; margin-top: 5px; line-height: 1.4;
+  }
+  .metric-tile .mt-accent { color: #2563EB; }
+  .metric-tile.gold-tile { border-color: #FDE68A; background: #FFFBEB; }
+  .metric-tile.gold-tile .mt-val { color: #D97706; }
+  .metric-tile.green-tile { border-color: #A7F3D0; background: #F0FDF4; }
+  .metric-tile.green-tile .mt-val { color: #059669; }
+
+  /* ── small util ── */
+  .section-eyebrow {
+    font-size: 9.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 2px;
+    color: #94A3B8; margin-bottom: 4px;
+  }
+  .arrow-down {
+    margin-left: 52px; height: 14px;
+    display: flex; align-items: center; padding-left: 0;
+  }
+  .arrow-down svg { display: block; }
+
+  .divider-label {
+    margin-left: 52px; margin-bottom: 6px; margin-top: 2px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .divider-label .dl-line { flex: 1; height: 1px; background: #E2E8F0; }
+  .divider-label .dl-text {
+    font-size: 9.5px; font-weight: 700; color: #94A3B8;
+    text-transform: uppercase; letter-spacing: 1.5px; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ══ HEADER ══════════════════════════════════════════════════════ -->
+  <div class="header">
+    <div>
+      <div class="section-eyebrow" style="color:rgba(255,255,255,0.55);">AI System Overview &nbsp;·&nbsp; Confidential</div>
+      <h1>Intelligent Transaction Classification</h1>
+      <p style="font-size:15px; opacity:0.7; margin-top:6px; font-style:italic;">Leveraging Research &amp; LLMs</p>
+    </div>
+  </div>
+
+  <!-- ══ MAIN GRID ══════════════════════════════════════════════════ -->
+  <div class="main-grid">
+
+    <!-- ── LEFT: Intelligence Foundation ── -->
+    <div class="foundation">
+      <div class="foundation-title">Phase 1 &nbsp;·&nbsp; Offline</div>
+      <div class="foundation-heading">The Intelligence<br>Foundation</div>
+
+      <div class="f-card">
+        <div class="f-card-num">1</div>
+        <div class="f-card-title">Training Data</div>
+        <div class="f-card-body">
+          35,000+ labeled Indian banking transactions
+          spanning salary, loans, UPI payments, investments,
+          taxes, insurance, and 37 more categories.
+        </div>
+        <div><span class="f-card-stat">43 categories</span><span class="f-card-stat" style="margin-left:6px;">Indian banking domain</span></div>
+      </div>
+
+      <div class="f-card">
+        <div class="f-card-num">2</div>
+        <div class="f-card-title">Proprietary AI Training Engine</div>
+        <div class="f-card-body">
+          Domain-specialized model training using
+          advanced contrastive learning — optimized for
+          heavily imbalanced data where rare categories
+          (e.g. tax, insurance) are as critical as common ones.
+          Indian language &amp; payment infrastructure built-in.
+        </div>
+        <div><span class="f-card-stat">SupCon learning</span><span class="f-card-stat" style="margin-left:6px;">IndicBERT backbone</span></div>
+      </div>
+
+      <div class="f-card">
+        <div class="f-card-num">3</div>
+        <div class="f-card-title">Knowledge Index</div>
+        <div class="f-card-body">
+          Diversity-optimized retrieval database built
+          from golden records. Balanced representation
+          ensures minority categories get equal retrieval
+          access alongside high-frequency ones.
+        </div>
+        <div><span class="f-card-stat">HNSW retrieval graph</span></div>
+      </div>
+
+      <div class="f-card">
+        <div class="f-card-num">4</div>
+        <div class="f-card-title">Unknown Transaction Calibration</div>
+        <div class="f-card-body">
+          System learns the boundary of "what it knows."
+          Transactions that fall outside known patterns
+          are flagged rather than silently mislabelled.
+        </div>
+        <div><span class="f-card-stat">OOD boundary learned</span></div>
+      </div>
+
+      <!-- Proprietary model trained banner -->
+      <div style="margin-top:18px; background:linear-gradient(135deg,#78350F,#D97706); border-radius:12px; padding:16px 18px; text-align:center; box-shadow:0 4px 16px rgba(217,119,6,0.35);">
+        <div style="font-size:18px; margin-bottom:6px;">🏆</div>
+        <div style="font-size:13px; font-weight:900; color:#FEF3C7; letter-spacing:0.5px; margin-bottom:5px;">
+          PROPRIETARY MODEL TRAINED
+        </div>
+        <div style="font-size:10px; color:#FDE68A; line-height:1.6;">
+          Domain-tuned AI model, knowledge index &amp; calibrated thresholds — locked and ready to deploy into the inference engine
+        </div>
+        <div style="margin-top:10px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
+          <span style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); border-radius:20px; font-size:9.5px; font-weight:700; color:#FEF3C7; padding:2px 10px;">fusion_encoder_best.pth</span>
+          <span style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); border-radius:20px; font-size:9.5px; font-weight:700; color:#FEF3C7; padding:2px 10px;">knowledge_index.faiss</span>
+          <span style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); border-radius:20px; font-size:9.5px; font-weight:700; color:#FEF3C7; padding:2px 10px;">ood_threshold.pkl</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CENTRE: visual arrow ── -->
+    <div class="powers-arrow">
+      <div class="pa-line"></div>
+      <div class="pa-head"></div>
+    </div>
+
+    <!-- ── RIGHT: Inference Engine ── -->
+    <div class="inference">
+
+      <div class="inference-header">
+        <div class="inference-dot"></div>
+        <div class="ih-title">Phase 2 &nbsp;·&nbsp; Live Inference Engine</div>
+        <div class="ih-sub">Real-time &nbsp;·&nbsp; &lt;15ms per transaction</div>
+      </div>
+
+      <div class="inference-body">
+
+        <!-- STEP 01 — Input -->
+        <div class="step">
+          <div class="step-connector green"></div>
+          <div class="step-num" style="background:#1B3868;">01</div>
+          <div class="step-card" style="margin-bottom:10px;">
+            <div class="step-title">Transaction Received</div>
+            <div class="step-desc">
+              Ingests description, payment mode (UPI / NEFT / IMPS / RTGS), amount and date.
+              Supports Hindi-English mixed text and all Indian payment formats natively.
+            </div>
+            <span class="tag tag-blue">Any batch size</span>
+            <span class="tag tag-teal">CSV or real-time stream</span>
+          </div>
+        </div>
+
+        <!-- STEP 02 — Proprietary Model -->
+        <div class="step">
+          <div class="step-connector green"></div>
+          <div class="step-num" style="background:#D97706;">02</div>
+          <div class="step-card featured" style="margin-bottom:10px;">
+            <div class="prop-label">★ &nbsp; OUR PROPRIETARY TRAINED MODEL</div>
+            <div class="step-title" style="margin-top:6px;">Multi-Modal AI Understanding</div>
+            <div class="step-desc">
+              Fuses <b>language semantics</b>, <b>payment channel</b>, and <b>transaction value</b>
+              into a single AI fingerprint — the basis for all downstream classification.
+              Built on IndicBERT, trained specifically on Indian banking data.
+            </div>
+            <div>
+              <span class="tag tag-gold">Language + Channel + Value</span>
+              <span class="model-tag">IndicBERT · fine-tuned</span>
+              <span class="model-tag">FP16 · production-ready</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 03 — Retrieval -->
+        <div class="step">
+          <div class="step-connector green"></div>
+          <div class="step-num" style="background:#059669;">03</div>
+          <div class="step-card" style="margin-bottom:10px;">
+            <div class="step-title">Intelligent Pattern Matching</div>
+            <div class="step-desc">
+              Retrieves the 10 closest matches from the knowledge index in &lt;15ms via HNSW graph search.
+              Cross-validated against per-category archetypes — rare categories (tax, insurance) never overshadowed by high-volume ones.
+            </div>
+            <span class="tag tag-green">HNSW · 50× faster search</span>
+            <span class="tag tag-green">Balanced across all 43 categories</span>
+          </div>
+        </div>
+
+        <!-- STEP 04 — Confidence Scoring -->
+        <div class="step">
+          <div class="step-connector"></div>
+          <div class="step-num" style="background:#0891B2;">04</div>
+          <div class="step-card" style="margin-bottom:10px;">
+            <div class="step-title">Confidence Scoring</div>
+            <div class="step-desc">
+              Blends retrieval evidence with archetype similarity into a weighted score per category.
+              Top prediction and confidence level advance to the decision gate.
+            </div>
+            <span class="tag tag-teal">RAG-based multi-signal scoring</span>
+            <span class="tag tag-blue">Per-category probability output</span>
+          </div>
+        </div>
+
+        <!-- STEP 05 — Decision Gate -->
+        <div class="step">
+          <div class="step-num" style="background:#DC2626;">05</div>
+          <div class="step-card" style="border-color:#FCA5A5; background:#FFF7F7; margin-bottom:10px;">
+            <div class="step-title" style="color:#991B1B;">Decision Intelligence Gate</div>
+            <div class="step-desc">
+              Dual check: <b>confidence ≥ 75%</b> AND <b>known transaction type</b> → direct output.
+              Either failure escalates to LLM Expert Review — zero silent misclassification.
+            </div>
+            <span class="tag tag-red">OOD detection · no silent errors</span>
+            <span class="tag tag-red">Confidence threshold ≥ 75%</span>
+          </div>
+        </div>
+
+        <!-- split paths -->
+        <div class="divider-label">
+          <div class="dl-line"></div>
+          <div class="dl-text">Two routing paths</div>
+          <div class="dl-line"></div>
+        </div>
+
+        <div class="split-row">
+          <div class="split-card-green">
+            <div class="path-badge path-auto">✓ &nbsp; AUTOMATED &nbsp;·&nbsp; ~90% of transactions</div>
+            <div class="split-card-title">Direct Classification</div>
+            <div class="split-card-body">
+              High-confidence match assigned instantly.
+              Top-3 evidence transactions stored for full auditability.
+            </div>
+            <div>
+              <span class="tag tag-green">Instant · auditable</span>
+            </div>
+          </div>
+
+          <div class="split-card-purple">
+            <div class="path-badge path-llm">⚡ &nbsp; LLM EXPERT REVIEW &nbsp;·&nbsp; ~10% of transactions</div>
+            <div class="split-card-title">LLM Assurance Layer</div>
+            <div class="split-card-body">
+              Novel or uncertain transactions reviewed by an LLM with retrieved context — a second opinion, not a guess.
+            </div>
+            <div>
+              <span class="tag tag-purple">Zero silent errors</span>
+              <span class="model-tag" style="background:#EDE9FE; border-color:#DDD6FE; color:#5B21B6;">llama3.2 / GPT-4o</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 06 — Final Output -->
+        <div style="margin-top:14px;">
+          <div style="margin-left:0; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+            <div class="step-num" style="background:#1B3868; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:900; color:#fff; flex-shrink:0;">06</div>
+            <div style="font-size:11px; color:#64748B;">Both paths converge into the final output record</div>
+          </div>
+          <div class="output-bar" style="margin-left:52px;">
+            <div class="ob-title">Verified Output + Full Audit Trail</div>
+            <div style="font-size:10.5px; color:#93C5FD; margin-bottom:8px;">
+              Every transaction is fully traceable — category, confidence, flags, and supporting evidence.
+            </div>
+            <div>
+              <span class="output-field">Category</span>
+              <span class="output-field">Confidence Score</span>
+              <span class="output-field">OOD Flag</span>
+              <span class="output-field">LLM Override Flag</span>
+              <span class="output-field">Top-3 Evidence Transactions</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /inference-body -->
+    </div><!-- /inference -->
+  </div><!-- /main-grid -->
+
+  <!-- ══ METRICS BAR ═════════════════════════════════════════════════ -->
+  <div class="metrics-bar">
+    <div class="metric-tile green-tile">
+      <div class="mt-val">~90%</div>
+      <div class="mt-lbl">Fully automated<br>no human touch</div>
+    </div>
+    <div class="metric-tile">
+      <div class="mt-val" style="color:#2563EB;">15 min</div>
+      <div class="mt-lbl">To process<br>1 million transactions</div>
+    </div>
+    <div class="metric-tile gold-tile">
+      <div class="mt-val">&lt;15ms</div>
+      <div class="mt-lbl">Latency per<br>transaction</div>
+    </div>
+    <div class="metric-tile">
+      <div class="mt-val" style="color:#7C3AED;">~10%</div>
+      <div class="mt-lbl">Routed to<br>LLM expert review</div>
+    </div>
+    <div class="metric-tile green-tile">
+      <div class="mt-val">$80</div>
+      <div class="mt-lbl">Cloud GPU cost<br>per month</div>
+    </div>
+  </div>
+
+  <!-- ══ FOOTER NOTE ════════════════════════════════════════════════ -->
+  <div style="margin-top: 20px; text-align:center; font-size:10.5px; color:#94A3B8;">
+    Adapted from: <i>"Cash Transaction Booking via Retrieval-Augmented LLM"</i> — Amazon Science &nbsp;·&nbsp;
+    Extended by the AI Team for Indian banking scale, language, and class imbalance
+  </div>
+
+</div>
+</body>
+</html>
